@@ -1,0 +1,112 @@
+# Experiment setup
+experiment_name: "infineon_void_poc"
+experiment_dir: "data/experiments/infineon_void_poc"
+
+# Base data
+base_image_dir: "data/base_chips"  # 5 NoVoids images
+
+# Model settings
+dino_model: "dinov2_vitb14"  # 768-dim embeddings
+pca_components: 2            # for visualization
+
+# Dataset sizes
+real:
+  param_sets: 5
+  replications: 3
+  total_size: 15  # 5*3
+
+close:
+  param_sets: 8
+  replications: 3
+  total_size: 24
+
+far:
+  param_sets: 8
+  replications: 3
+  total_size: 24
+
+# Iteration settings
+iteration_batch_size: 8      # param sets per iteration
+replications_per_iteration: 3
+max_iterations: 10
+
+# Parameter space (search bounds)
+param_bounds:
+  void_shape: ['circle', 'ellipse', 'irregular']
+  void_count: [3, 20]
+  base_size: [5.0, 40.0]
+  brightness_factor: [0.3, 0.8]
+  size_std: [0.0, 15.0]
+  position_spread: [0.1, 0.8]
+
+# Parameter distributions (initial guesses, tune empirically)
+param_distributions:
+  real:
+    void_shape:
+      circle: 0.2
+      ellipse: 0.5
+      irregular: 0.3
+    void_count:
+      mean: 8
+      std: 3
+    base_size:
+      mean: 20
+      std: 5
+    brightness_factor:
+      mean: 0.6
+      std: 0.1
+    size_std:
+      mean: 7
+      std: 2
+    position_spread:
+      mean: 0.5
+      std: 0.15
+
+  close:
+    void_shape:
+      circle: 0.25
+      ellipse: 0.45
+      irregular: 0.3
+    void_count:
+      mean: 10
+      std: 3
+    base_size:
+      mean: 18
+      std: 5
+    brightness_factor:
+      mean: 0.55
+      std: 0.1
+    size_std:
+      mean: 8
+      std: 2
+    position_spread:
+      mean: 0.55
+      std: 0.15
+
+  far:
+    void_shape:
+      circle: 0.7
+      ellipse: 0.2
+      irregular: 0.1
+    void_count:
+      mean: 15
+      std: 3
+    base_size:
+      mean: 10
+      std: 5
+    brightness_factor:
+      mean: 0.4
+      std: 0.1
+    size_std:
+      mean: 3
+      std: 1
+    position_spread:
+      mean: 0.8
+      std: 0.1
+
+# Convergence criteria
+convergence_threshold: 0.05  # distribution similarity metric
+early_stop_patience: 3       # stop if no improvement for N iterations
+
+# Optimization (placeholder)
+acquisition_function: "ucb"  # or "ei", "pi"
