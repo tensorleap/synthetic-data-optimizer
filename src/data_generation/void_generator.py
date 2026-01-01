@@ -266,7 +266,8 @@ class VoidGenerator:
         self,
         param_sets: List[Dict],
         replications: int = 3,
-        save_dir: Optional[Path] = None
+        save_dir: Optional[Path] = None,
+        seed_offset: int = 0
     ) -> Tuple[List[np.ndarray], List[Dict]]:
         """
         Generate batch of images from parameter sets.
@@ -275,6 +276,7 @@ class VoidGenerator:
             param_sets: List of parameter dictionaries
             replications: Number of samples per parameter set (different seeds)
             save_dir: Optional directory to save images
+            seed_offset: Offset added to calculated seed (for reproducibility across batches)
 
         Returns:
             images: List of generated images
@@ -285,7 +287,7 @@ class VoidGenerator:
 
         for param_idx, params in enumerate(param_sets):
             for rep in range(replications):
-                seed = param_idx * replications + rep
+                seed = seed_offset + param_idx * replications + rep
                 img, metadata = self.generate_single(params, seed)
 
                 # Add tracking IDs

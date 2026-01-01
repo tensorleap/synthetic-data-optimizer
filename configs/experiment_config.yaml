@@ -9,6 +9,9 @@ base_image_dir: "data/base_chips"  # 5 NoVoids images
 dino_model: "dinov2_vitb14"  # 768-dim embeddings
 pca_components: 2            # for visualization
 
+# Random seed (one seed to rule them all)
+random_seed: 42
+
 # Dataset sizes
 real:
   param_sets: 5
@@ -33,10 +36,10 @@ max_iterations: 10
 # Parameter space (search bounds)
 param_bounds:
   void_shape: ['circle', 'ellipse', 'irregular']
-  void_count: [3, 20]
+  void_count: [1, 10]
   base_size: [5.0, 40.0]
   brightness_factor: [0.3, 0.8]
-  size_std: [0.0, 15.0]
+  size_std: [0.0, 10.0]
   position_spread: [0.1, 0.8]
 
 # Parameter distributions (initial guesses, tune empirically)
