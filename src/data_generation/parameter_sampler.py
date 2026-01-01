@@ -65,11 +65,11 @@ class ParameterSampler:
         for i in range(n_sets):
             params = {
                 'void_shape': self._sample_categorical(dist['void_shape']),
-                'void_count': self._sample_integer(dist['void_count']),
-                'base_size': self._sample_continuous(dist['base_size']),
-                'brightness_factor': self._sample_continuous(dist['brightness_factor']),
-                'size_std': self._sample_continuous(dist['size_std']),
-                'position_spread': self._sample_continuous(dist['position_spread']),
+                'void_count': self._sample_integer(dist['void_count'], 'void_count'),
+                'base_size': self._sample_continuous(dist['base_size'], 'base_size'),
+                'brightness_factor': self._sample_continuous(dist['brightness_factor'], 'brightness_factor'),
+                'size_std': self._sample_continuous(dist['size_std'], 'size_std'),
+                'position_spread': self._sample_continuous(dist['position_spread'], 'position_spread'),
             }
             param_sets.append(params)
 
@@ -82,26 +82,24 @@ class ParameterSampler:
         probs = list(probabilities.values())
         return np.random.choice(categories, p=probs)
 
-    def _sample_integer(self, spec: Dict) -> int:
-        """Sample integer from normal distribution, clipped to bounds"""
+    def _sample_integer(self, spec: Dict, param_name: str) -> int:
+        """Sample integer from normal distribution, clipped to global param_bounds"""
         value = np.random.normal(spec['mean'], spec['std'])
 
-        # Apply bounds
-        if 'min' in spec:
-            value = max(value, spec['min'])
-        if 'max' in spec:
-            value = min(value, spec['max'])
+        # Apply global bounds from param_bounds
+        bounds = self.param_bounds[param_name]
+        value = max(value, bounds[0])
+        value = min(value, bounds[1])
 
         return int(round(value))
 
-    def _sample_continuous(self, spec: Dict) -> float:
-        """Sample continuous value from normal distribution, clipped to bounds"""
+    def _sample_continuous(self, spec: Dict, param_name: str) -> float:
+        """Sample continuous value from normal distribution, clipped to global param_bounds"""
         value = np.random.normal(spec['mean'], spec['std'])
 
-        # Apply bounds
-        if 'min' in spec:
-            value = max(value, spec['min'])
-        if 'max' in spec:
-            value = min(value, spec['max'])
+        # Apply global bounds from param_bounds
+        bounds = self.param_bounds[param_name]
+        value = max(value, bounds[0])
+        value = min(value, bounds[1])
 
         return float(value)
