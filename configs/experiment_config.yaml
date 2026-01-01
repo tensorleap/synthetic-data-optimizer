@@ -43,66 +43,99 @@ param_bounds:
 param_distributions:
   real:
     void_shape:
-      circle: 0.2
-      ellipse: 0.5
-      irregular: 0.3
+      probabilities:
+        circle: 0.2
+        ellipse: 0.5
+        irregular: 0.3
     void_count:
       mean: 8
       std: 3
+      min: 3
+      max: 20
     base_size:
       mean: 20
       std: 5
+      min: 5.0
+      max: 40.0
     brightness_factor:
       mean: 0.6
       std: 0.1
+      min: 0.3
+      max: 0.8
     size_std:
       mean: 7
       std: 2
+      min: 0.0
+      max: 15.0
     position_spread:
       mean: 0.5
       std: 0.15
+      min: 0.1
+      max: 0.8
 
   close:
     void_shape:
-      circle: 0.25
-      ellipse: 0.45
-      irregular: 0.3
+      probabilities:
+        circle: 0.25
+        ellipse: 0.45
+        irregular: 0.3
     void_count:
       mean: 10
       std: 3
+      min: 3
+      max: 20
     base_size:
       mean: 18
       std: 5
+      min: 5.0
+      max: 40.0
     brightness_factor:
       mean: 0.55
       std: 0.1
+      min: 0.3
+      max: 0.8
     size_std:
       mean: 8
       std: 2
+      min: 0.0
+      max: 15.0
     position_spread:
       mean: 0.55
       std: 0.15
+      min: 0.1
+      max: 0.8
 
   far:
     void_shape:
-      circle: 0.7
-      ellipse: 0.2
-      irregular: 0.1
+      probabilities:
+        circle: 0.7
+        ellipse: 0.2
+        irregular: 0.1
     void_count:
       mean: 15
       std: 3
+      min: 3
+      max: 20
     base_size:
       mean: 10
       std: 5
+      min: 5.0
+      max: 40.0
     brightness_factor:
       mean: 0.4
       std: 0.1
+      min: 0.3
+      max: 0.8
     size_std:
       mean: 3
       std: 1
+      min: 0.0
+      max: 15.0
     position_spread:
       mean: 0.8
       std: 0.1
+      min: 0.1
+      max: 0.8
 
 # Convergence criteria
 convergence_threshold: 0.05  # distribution similarity metric
