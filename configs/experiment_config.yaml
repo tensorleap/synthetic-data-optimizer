@@ -37,10 +37,20 @@ max_iterations: 10
 param_bounds:
   void_shape: ['circle', 'ellipse', 'irregular']
   void_count: [1, 10]
-  base_size: [5.0, 40.0]
+  base_size: [5.0, 15.0]
   brightness_factor: [0.3, 0.8]
-  size_std: [0.0, 10.0]
+  size_std: [0.0, 8.0]
   position_spread: [0.1, 0.8]
+
+# Parameter precision (decimal places for rounding)
+# Controls granularity of parameter space for optimization
+# precision=1 means round to 1 decimal place (step size 0.1)
+# precision=2 means round to 2 decimal places (step size 0.01)
+param_precision:
+  base_size: 1          # round(15.347, 1) = 15.3  (step size: 0.1 pixels)
+  brightness_factor: 2  # round(0.5523, 2) = 0.55  (step size: 0.01)
+  size_std: 1           # round(3.462, 1) = 3.5    (step size: 0.1 pixels)
+  position_spread: 2    # round(0.4567, 2) = 0.46  (step size: 0.01)
 
 # Parameter distributions (initial guesses, tune empirically)
 # Note: Sampling will clip to param_bounds defined above

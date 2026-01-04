@@ -29,6 +29,7 @@ class ParameterSampler:
 
         self.distributions = config['param_distributions']
         self.param_bounds = config['param_bounds']
+        self.param_precision = config.get('param_precision', {})
 
     def sample_parameter_sets(
         self,
@@ -101,5 +102,10 @@ class ParameterSampler:
         bounds = self.param_bounds[param_name]
         value = max(value, bounds[0])
         value = min(value, bounds[1])
+
+        # Apply precision rounding if specified
+        if param_name in self.param_precision:
+            precision = self.param_precision[param_name]
+            value = round(value, precision)
 
         return float(value)
