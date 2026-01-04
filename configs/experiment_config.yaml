@@ -103,9 +103,9 @@ param_distributions:
   far:
     void_shape:
       probabilities:
-        circle: 0.7
+        circle: 0.6
         ellipse: 0.2
-        irregular: 0.1
+        irregular: 0.2
     void_count:
       mean: 15
       std: 3
@@ -113,13 +113,13 @@ param_distributions:
       mean: 10
       std: 5
     brightness_factor:
-      mean: 0.4
+      mean: 0.25
       std: 0.1
     size_std:
-      mean: 3
+      mean: 2
       std: 1
     position_spread:
-      mean: 0.8
+      mean: 0.9
       std: 0.1
 
 # Convergence criteria
