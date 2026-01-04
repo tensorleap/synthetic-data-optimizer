@@ -95,6 +95,9 @@ logs/
 # Test artifacts
 data/test_*.pkl
 
+# Experiments results
+data/experiments
+
 # Model files (optional - uncomment if needed)
 # *.pkl
 # *.h5
