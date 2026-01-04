@@ -54,7 +54,6 @@ class PCAProjector:
 
         if verbose:
             print(f"PCA fitted successfully")
-            print(f"Explained variance ratio: {self.explained_variance_ratio_}")
             print(f"Total explained variance: {self.explained_variance_ratio_.sum():.4f}")
 
         return projections
@@ -135,7 +134,7 @@ class PCAProjector:
         projector.explained_variance_ratio_ = state['explained_variance_ratio']
 
         print(f"PCA model loaded from {path}")
-        print(f"Explained variance ratio: {projector.explained_variance_ratio_}")
+        print(f"Total explained variance: {projector.explained_variance_ratio_.sum():.4f}")
 
         return projector
 

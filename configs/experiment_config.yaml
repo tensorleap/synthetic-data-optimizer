@@ -103,24 +103,24 @@ param_distributions:
   far:
     void_shape:
       probabilities:
-        circle: 0.6
-        ellipse: 0.2
-        irregular: 0.2
+        circle: 0.8
+        ellipse: 0.1
+        irregular: 0.1
     void_count:
-      mean: 15
+      mean: 20
       std: 3
     base_size:
-      mean: 10
-      std: 5
+      mean: 8
+      std: 3
     brightness_factor:
-      mean: 0.25
-      std: 0.1
+      mean: 0.15
+      std: 0.05
     size_std:
-      mean: 2
-      std: 1
+      mean: 1
+      std: 0.5
     position_spread:
-      mean: 0.9
-      std: 0.1
+      mean: 0.95
+      std: 0.05
 
 # Convergence criteria
 convergence_threshold: 0.05  # distribution similarity metric
