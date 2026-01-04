@@ -1,7 +1,7 @@
 acquisition_function: ucb
 base_image_dir: ../data/base_chips
 close:
-  param_sets: 3
+  param_sets: 9
   replications: 2
   total_size: 24
 convergence_threshold: 0.05
@@ -10,7 +10,7 @@ early_stop_patience: 3
 experiment_dir: ../data/experiments/test_5_iterations
 experiment_name: test_5_iterations
 far:
-  param_sets: 3
+  param_sets: 9
   replications: 2
   total_size: 24
 iteration_batch_size: 4
@@ -19,15 +19,18 @@ param_bounds:
   base_size:
   - 5.0
   - 15.0
-  brightness_factor:
-  - 0.3
+  center_x:
+  - 0.2
+  - 0.8
+  center_y:
+  - 0.2
   - 0.8
   position_spread:
   - 0.1
   - 0.8
-  size_std:
+  rotation:
   - 0.0
-  - 8.0
+  - 360.0
   void_count:
   - 1
   - 10
@@ -40,15 +43,18 @@ param_distributions:
     base_size:
       mean: 18
       std: 5
-    brightness_factor:
-      mean: 0.55
-      std: 0.1
+    center_x:
+      mean: 0.5
+      std: 0.15
+    center_y:
+      mean: 0.5
+      std: 0.15
     position_spread:
       mean: 0.55
       std: 0.15
-    size_std:
-      mean: 8
-      std: 2
+    rotation:
+      mean: 180
+      std: 90
     void_count:
       mean: 10
       std: 3
@@ -61,15 +67,18 @@ param_distributions:
     base_size:
       mean: 8
       std: 3
-    brightness_factor:
-      mean: 0.15
-      std: 0.05
+    center_x:
+      mean: 0.5
+      std: 0.15
+    center_y:
+      mean: 0.5
+      std: 0.15
     position_spread:
       mean: 0.95
       std: 0.05
-    size_std:
-      mean: 1
-      std: 0.5
+    rotation:
+      mean: 180
+      std: 90
     void_count:
       mean: 20
       std: 3
@@ -82,15 +91,18 @@ param_distributions:
     base_size:
       mean: 20
       std: 5
-    brightness_factor:
-      mean: 0.6
-      std: 0.1
+    center_x:
+      mean: 0.5
+      std: 0.15
+    center_y:
+      mean: 0.5
+      std: 0.15
     position_spread:
       mean: 0.5
       std: 0.15
-    size_std:
-      mean: 7
-      std: 2
+    rotation:
+      mean: 180
+      std: 90
     void_count:
       mean: 8
       std: 3
@@ -101,9 +113,10 @@ param_distributions:
         irregular: 0.3
 param_precision:
   base_size: 1
-  brightness_factor: 2
+  center_x: 2
+  center_y: 2
   position_spread: 2
-  size_std: 1
+  rotation: 1
 pca_embedding_dim: 400
 pca_visualization_dim: 2
 random_seed: 1

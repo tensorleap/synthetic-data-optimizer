@@ -50,8 +50,9 @@ class ParameterSampler:
                 - void_shape: str
                 - void_count: int
                 - base_size: float
-                - brightness_factor: float
-                - size_std: float
+                - rotation: float
+                - center_x: float
+                - center_y: float
                 - position_spread: float
         """
         if seed is not None:
@@ -68,8 +69,9 @@ class ParameterSampler:
                 'void_shape': self._sample_categorical(dist['void_shape']),
                 'void_count': self._sample_integer(dist['void_count'], 'void_count'),
                 'base_size': self._sample_continuous(dist['base_size'], 'base_size'),
-                'brightness_factor': self._sample_continuous(dist['brightness_factor'], 'brightness_factor'),
-                'size_std': self._sample_continuous(dist['size_std'], 'size_std'),
+                'rotation': self._sample_continuous(dist['rotation'], 'rotation'),
+                'center_x': self._sample_continuous(dist['center_x'], 'center_x'),
+                'center_y': self._sample_continuous(dist['center_y'], 'center_y'),
                 'position_spread': self._sample_continuous(dist['position_spread'], 'position_spread'),
             }
             param_sets.append(params)

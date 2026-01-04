@@ -59,7 +59,7 @@ def suggest_next_parameters(
         ))
 
         # Continuous parameters: random float in range with precision
-        for param_name in ['base_size', 'brightness_factor', 'size_std', 'position_spread']:
+        for param_name in ['base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
             bounds = param_bounds[param_name]
             value = np.random.uniform(bounds[0], bounds[1])
 

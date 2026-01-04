@@ -50,10 +50,11 @@ class VoidGenerator:
             params: Parameter dictionary with:
                 - void_shape: 'circle', 'ellipse', or 'irregular'
                 - void_count: number of voids to generate
-                - base_size: base void size in pixels
-                - brightness_factor: 0.0-1.0 (0=black, 1=unchanged)
-                - size_std: standard deviation for size variation (stochastic)
-                - position_spread: 0.0-1.0, fraction of image for position distribution (stochastic)
+                - base_size: base void size in pixels (with distribution)
+                - rotation: rotation angle in degrees for ellipses
+                - center_x: x-coordinate of void cluster center (fraction of width)
+                - center_y: y-coordinate of void cluster center (fraction of height)
+                - position_spread: 0.0-1.0, fraction of image for position distribution around center
             seed: Random seed for reproducibility
             base_image_idx: Optional index to select specific base image, otherwise random
 
@@ -72,17 +73,18 @@ class VoidGenerator:
         img = base_image.copy().astype(np.float32)
         height, width = img.shape
 
-        # Extract parameters
+        # Extract controlled parameters
         void_shape = params['void_shape']
         void_count = params['void_count']
         base_size = params['base_size']
-        brightness_factor = params['brightness_factor']
-        size_std = params['size_std']
+        rotation = params['rotation']
+        center_x = params['center_x']
+        center_y = params['center_y']
         position_spread = params['position_spread']
 
         # Uncontrolled parameters (random per image)
-        rotation = np.random.uniform(0, 360)
-        edge_blur = 2  # fixed
+        brightness_factor = np.random.uniform(0.3, 0.8)
+        edge_blur = np.random.randint(1, 5)  # random edge blur [1, 4]
 
         # Create unified void mask - all voids will have same intensity
         unified_void_mask = np.zeros(img.shape, dtype=np.float32)
@@ -90,8 +92,8 @@ class VoidGenerator:
         # Generate voids and union them into single mask
         void_metadata = []
         for i in range(void_count):
-            # Sample void size from distribution
-            void_size = max(1, base_size + np.random.normal(0, size_std))
+            # Use base_size directly (no size_std anymore)
+            void_size = max(1, base_size)
 
             # Calculate maximum radius considering shape variations
             # Irregular shapes can vary up to 1.5x the size
@@ -99,21 +101,21 @@ class VoidGenerator:
             # Add safety margin for edge blur
             max_radius = void_size * 1.5 + edge_blur
 
-            # position_spread defines the region where void centers can be placed
-            # 0.5 means centers in middle 50% of image, 1.0 means anywhere
-            center_x = width / 2
-            center_y = height / 2
+            # Convert center fractions to pixel coordinates
+            # center_x and center_y are now controlled parameters (0.0-1.0)
+            cluster_center_x = center_x * width
+            cluster_center_y = center_y * height
 
-            # Calculate spread range (from center)
+            # Calculate spread range (from cluster center)
             spread_x = (width / 2) * position_spread
             spread_y = (height / 2) * position_spread
 
             # Sample position within spread area, keeping voids within boundaries
             # Add margin equal to max_radius from all edges
-            x_min = max(center_x - spread_x, max_radius)
-            x_max = min(center_x + spread_x, width - max_radius)
-            y_min = max(center_y - spread_y, max_radius)
-            y_max = min(center_y + spread_y, height - max_radius)
+            x_min = max(cluster_center_x - spread_x, max_radius)
+            x_max = min(cluster_center_x + spread_x, width - max_radius)
+            y_min = max(cluster_center_y - spread_y, max_radius)
+            y_max = min(cluster_center_y + spread_y, height - max_radius)
 
             # Ensure valid range (in case spread is too large or size is too big)
             if x_max <= x_min:
@@ -167,8 +169,8 @@ class VoidGenerator:
             'base_image_id': base_image_name,
             'base_image_idx': base_image_idx,
             'uncontrolled_params': {
-                'rotation': float(rotation),
-                'edge_blur': edge_blur
+                'brightness_factor': float(brightness_factor),
+                'edge_blur': int(edge_blur)
             },
             'voids': void_metadata,
             'image_shape': (height, width)
