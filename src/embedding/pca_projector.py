@@ -43,13 +43,25 @@ class PCAProjector:
         if self.fitted:
             raise RuntimeError("PCA already fitted. Use transform() for new data or create new instance.")
 
+        # Automatically adjust n_components if dataset is too small
+        n_samples, n_features = embeddings.shape
+        max_components = min(n_samples, n_features)
+        actual_n_components = min(self.n_components, max_components)
+
+        if actual_n_components < self.n_components:
+            if verbose:
+                print(f"Warning: Requested {self.n_components} components but dataset only has "
+                      f"{n_samples} samples and {n_features} features.")
+                print(f"         Reducing to {actual_n_components} components (max possible).")
+
         if verbose:
-            print(f"Fitting PCA with {self.n_components} components on {embeddings.shape[0]} samples...")
+            print(f"Fitting PCA with {actual_n_components} components on {n_samples} samples...")
 
         # Fit PCA
-        self.pca = PCA(n_components=self.n_components)
+        self.pca = PCA(n_components=actual_n_components)
         projections = self.pca.fit_transform(embeddings)
         self.fitted = True
+        self.n_components = actual_n_components  # Update to actual fitted components
         self.explained_variance_ratio_ = self.pca.explained_variance_ratio_
 
         if verbose:

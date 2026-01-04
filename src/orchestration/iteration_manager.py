@@ -59,8 +59,16 @@ class IterationManager:
             json.dump(params, f, indent=2)
 
         # Save embeddings as numpy
-        embeddings_path = iter_dir / "embeddings.npy"
-        np.save(embeddings_path, embeddings)
+        # Handle both single array and dict of arrays
+        if isinstance(embeddings, dict):
+            # Save each array separately for iteration 0 (real, close, far)
+            for key, arr in embeddings.items():
+                embeddings_path = iter_dir / f"embeddings_{key}.npy"
+                np.save(embeddings_path, arr)
+        else:
+            # Single array for optimization iterations
+            embeddings_path = iter_dir / "embeddings.npy"
+            np.save(embeddings_path, embeddings)
 
         # Save metrics as JSON
         metrics_path = iter_dir / "metrics.json"
@@ -95,7 +103,17 @@ class IterationManager:
             params = json.load(f)
 
         # Load embeddings
-        embeddings = np.load(iter_dir / "embeddings.npy")
+        # Check if this is iteration 0 with multiple embedding files (real, close, far)
+        embeddings_files = list(iter_dir.glob("embeddings_*.npy"))
+        if embeddings_files:
+            # Iteration 0: load dict of arrays
+            embeddings = {}
+            for emb_file in embeddings_files:
+                key = emb_file.stem.replace("embeddings_", "")  # Extract 'real', 'close', 'far'
+                embeddings[key] = np.load(emb_file)
+        else:
+            # Optimization iterations: single array
+            embeddings = np.load(iter_dir / "embeddings.npy")
 
         # Load metrics
         with open(iter_dir / "metrics.json", 'r') as f:
