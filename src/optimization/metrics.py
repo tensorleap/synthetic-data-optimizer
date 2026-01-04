@@ -14,7 +14,7 @@ class DistributionMetrics:
     """Calculate distribution similarity metrics"""
 
     @staticmethod
-    def mmd(X: np.ndarray, Y: np.ndarray, kernel: str = 'rbf', gamma: float = 1.0) -> float:
+    def mmd(X: np.ndarray, Y: np.ndarray, kernel: str = 'rbf', gamma: float = None) -> float:
         """
         Calculate Maximum Mean Discrepancy (MMD) between two distributions.
 
@@ -22,12 +22,16 @@ class DistributionMetrics:
             X: (N, D) array of samples from distribution 1
             Y: (M, D) array of samples from distribution 2
             kernel: Kernel type ('rbf' or 'linear')
-            gamma: RBF kernel parameter
+            gamma: RBF kernel parameter. If None, uses median heuristic.
 
         Returns:
             mmd_value: MMD distance (lower is better)
         """
         if kernel == 'rbf':
+            # Auto-compute gamma using median heuristic if not provided
+            if gamma is None:
+                gamma = DistributionMetrics._compute_gamma_median_heuristic(X, Y)
+
             # RBF kernel: k(x,y) = exp(-gamma * ||x-y||^2)
             XX = DistributionMetrics._rbf_kernel(X, X, gamma)
             YY = DistributionMetrics._rbf_kernel(Y, Y, gamma)
@@ -42,6 +46,29 @@ class DistributionMetrics:
 
         mmd = XX.mean() + YY.mean() - 2 * XY.mean()
         return float(np.sqrt(max(mmd, 0)))  # Ensure non-negative due to numerical errors
+
+    @staticmethod
+    def _compute_gamma_median_heuristic(X: np.ndarray, Y: np.ndarray) -> float:
+        """
+        Compute gamma for RBF kernel using median heuristic.
+
+        gamma = 1 / (2 * sigma^2), where sigma is the median pairwise distance.
+        """
+        from sklearn.metrics import pairwise_distances
+
+        # Combine both distributions for computing median
+        Z = np.vstack([X, Y])
+
+        # Compute pairwise distances
+        D = pairwise_distances(Z)
+
+        # Get median of non-zero distances
+        sigma = np.median(D[D > 0])
+
+        # gamma = 1 / (2 * sigma^2)
+        gamma = 1.0 / (2 * sigma ** 2)
+
+        return gamma
 
     @staticmethod
     def _rbf_kernel(X: np.ndarray, Y: np.ndarray, gamma: float) -> np.ndarray:
@@ -168,7 +195,8 @@ def compute_all_metrics(
     metrics = {}
 
     # Distribution-level metrics
-    metrics['mmd_rbf'] = DistributionMetrics.mmd(synthetic_embeddings, real_embeddings, kernel='rbf', gamma=1.0)
+    # MMD with auto-computed gamma using median heuristic
+    metrics['mmd_rbf'] = DistributionMetrics.mmd(synthetic_embeddings, real_embeddings, kernel='rbf', gamma=None)
     metrics['mmd_linear'] = DistributionMetrics.mmd(synthetic_embeddings, real_embeddings, kernel='linear')
     metrics['wasserstein'] = DistributionMetrics.wasserstein_1d(synthetic_embeddings, real_embeddings)
 
