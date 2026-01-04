@@ -30,6 +30,9 @@ ENV/
 env/
 .virtualenvs/
 
+# Claude Code
+.claude/
+
 # Poetry
 poetry.lock
 
