@@ -11,7 +11,7 @@ pca_embedding_dim: 400             # reduce to 400-dim for optimization
 pca_visualization_dim: 2           # further reduce to 2D for visualization
 
 # Random seed (one seed to rule them all)
-random_seed: 42
+random_seed: 1
 
 # Dataset sizes
 real:
