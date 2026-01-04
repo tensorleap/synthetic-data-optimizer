@@ -1,7 +1,7 @@
 acquisition_function: ucb
 base_image_dir: ../data/base_chips
 close:
-  param_sets: 3
+  param_sets: 9
   replications: 2
   total_size: 24
 convergence_threshold: 0.05
@@ -10,7 +10,7 @@ early_stop_patience: 3
 experiment_dir: ../data/experiments/test_5_iterations
 experiment_name: test_5_iterations
 far:
-  param_sets: 3
+  param_sets: 9
   replications: 2
   total_size: 24
 iteration_batch_size: 4

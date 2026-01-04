@@ -109,8 +109,8 @@ class DistributionMetrics:
 class SampleMetrics:
     """Calculate per-sample distance metrics"""
 
-    @staticmethod
-    def nearest_neighbor_distances(
+    @staticmethod 
+    def nearest_neighbor_distances( # TODO modify to both directions real <-> synthetic
         synthetic: np.ndarray,
         real: np.ndarray,
         metric: str = 'euclidean'
