@@ -34,6 +34,9 @@ iteration_batch_size: 8      # param sets per iteration
 replications_per_iteration: 3
 max_iterations: 10
 
+# Initial condition for optimization (iteration 0)
+initial_condition: 'far'  # 'close' or 'far' - determines starting synthetic distribution
+
 # Parameter space (search bounds)
 param_bounds:
   void_shape: ['circle', 'ellipse', 'irregular']
