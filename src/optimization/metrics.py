@@ -109,32 +109,52 @@ class DistributionMetrics:
 class SampleMetrics:
     """Calculate per-sample distance metrics"""
 
-    @staticmethod 
-    def nearest_neighbor_distances( # TODO modify to both directions real <-> synthetic
+    @staticmethod
+    def nearest_neighbor_distances(
         synthetic: np.ndarray,
         real: np.ndarray,
-        metric: str = 'euclidean'
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        metric: str = 'euclidean',
+        bidirectional: bool = True
+    ) -> Tuple[np.ndarray, np.ndarray, Dict]:
         """
-        Calculate distance from each synthetic sample to nearest real sample.
+        Calculate nearest neighbor distances between synthetic and real samples.
 
         Args:
             synthetic: (N, D) array of synthetic embeddings
             real: (M, D) array of real embeddings
             metric: Distance metric ('euclidean', 'cosine', etc.)
+            bidirectional: If True, compute distances in both directions
 
         Returns:
-            distances: (N,) array of nearest neighbor distances
-            indices: (N,) array of nearest neighbor indices in real
+            syn_to_real_distances: (N,) array of distances from synthetic to nearest real
+            syn_to_real_indices: (N,) array of nearest real neighbor indices
+            bidirectional_info: Dictionary with bidirectional metrics (if bidirectional=True)
         """
         # Compute pairwise distances
         dist_matrix = cdist(synthetic, real, metric=metric)
 
-        # Find nearest neighbor
-        nearest_distances = dist_matrix.min(axis=1)
-        nearest_indices = dist_matrix.argmin(axis=1)
+        # Synthetic -> Real (precision: are synthetic close to real?)
+        syn_to_real_distances = dist_matrix.min(axis=1)
+        syn_to_real_indices = dist_matrix.argmin(axis=1)
 
-        return nearest_distances, nearest_indices
+        bidirectional_info = {}
+
+        if bidirectional:
+            # Real -> Synthetic (recall: are real covered by synthetic?)
+            real_to_syn_distances = dist_matrix.min(axis=0)
+            real_to_syn_indices = dist_matrix.argmin(axis=0)
+
+            # Bidirectional metrics
+            bidirectional_info = {
+                'syn_to_real_mean': float(syn_to_real_distances.mean()),
+                'real_to_syn_mean': float(real_to_syn_distances.mean()),
+                'max_nn_distance': float(max(syn_to_real_distances.mean(), real_to_syn_distances.mean())),
+                'mean_nn_distance': float((syn_to_real_distances.mean() + real_to_syn_distances.mean()) / 2),
+                'real_to_syn_max': float(real_to_syn_distances.max()),  # worst-case uncovered real
+                'unique_real_neighbors': int(len(np.unique(syn_to_real_indices)))  # diversity check
+            }
+
+        return syn_to_real_distances, syn_to_real_indices, bidirectional_info
 
     @staticmethod
     def coverage(
@@ -156,7 +176,7 @@ class SampleMetrics:
             Dictionary with coverage metrics
         """
         # Calculate nearest neighbor distances
-        nn_distances, _ = SampleMetrics.nearest_neighbor_distances(synthetic, real, metric)
+        nn_distances, _, _ = SampleMetrics.nearest_neighbor_distances(synthetic, real, metric, bidirectional=False)
 
         # If no threshold provided, use median of real-real distances
         if threshold is None:
@@ -200,9 +220,15 @@ def compute_all_metrics(
     metrics['mmd_linear'] = DistributionMetrics.mmd(synthetic_embeddings, real_embeddings, kernel='linear')
     metrics['wasserstein'] = DistributionMetrics.wasserstein_1d(synthetic_embeddings, real_embeddings)
 
-    # Sample-level metrics
-    nn_distances, _ = SampleMetrics.nearest_neighbor_distances(synthetic_embeddings, real_embeddings)
-    metrics['mean_nn_distance'] = float(nn_distances.mean())
+    # Sample-level bidirectional metrics
+    nn_distances, _, bidirectional_info = SampleMetrics.nearest_neighbor_distances(
+        synthetic_embeddings, real_embeddings, bidirectional=True
+    )
+
+    # Add bidirectional NN metrics
+    metrics.update(bidirectional_info)
+
+    # Keep legacy metrics for backwards compatibility
     metrics['median_nn_distance'] = float(np.median(nn_distances))
 
     # Coverage
