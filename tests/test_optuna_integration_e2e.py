@@ -21,6 +21,7 @@ from src.data_generation.parameter_sampler import ParameterSampler
 from src.embedding.dinov2_embedder import DinoV2Embedder
 from src.embedding.pca_projector import PCAProjector
 from src.optimization.metrics import compute_all_metrics
+from src.visualization.experiment_reporter import ExperimentReporter
 
 
 @pytest.fixture
@@ -186,6 +187,128 @@ class TestOptunaE2EIntegration:
         assert optimizer.study_path.exists(), "SQLite study file should exist"
 
         print("[Test] ✓ End-to-end integration test passed!")
+
+    def test_experiment_reporter_visualization(self, mini_config, temp_test_dir):
+        """Test ExperimentReporter generates all visualizations"""
+        import numpy as np
+
+        # Initialize components
+        experiment_dir = Path(mini_config['experiment_dir'])
+        experiment_dir.mkdir(parents=True, exist_ok=True)
+
+        optimizer = OptunaOptimizer(experiment_dir, mini_config)
+        sampler = ParameterSampler()
+        generator = VoidGenerator(Path(mini_config['base_image_dir']))
+        embedder = DinoV2Embedder(model_name=mini_config['dino_model'])
+        reporter = ExperimentReporter(experiment_dir)
+
+        # Generate real distribution
+        print("\n[Test] Generating real distribution...")
+        real_params = sampler.sample_parameter_sets('real', n_sets=2, seed=42)
+        real_images, _ = generator.generate_batch(real_params, replications=1, seed_offset=0)
+        real_embeddings_full = embedder.embed_batch(real_images)
+
+        pca = PCAProjector(n_components=mini_config['pca_embedding_dim'])
+        real_embeddings = pca.fit_transform(real_embeddings_full)
+
+        # Save real sample images
+        print("[Test] Saving real sample images...")
+        reporter.save_sample_images(real_images, iteration=0, label="real", n_samples=2)
+
+        # Track embeddings by iteration
+        synthetic_embeddings_by_iter = {}
+
+        # Run 2 optimization iterations
+        prev_embeddings = real_embeddings
+        prev_params = real_params
+        prev_metrics = compute_all_metrics(real_embeddings, real_embeddings)
+
+        for iteration in range(1, 3):
+            print(f"\n[Test] === Iteration {iteration} ===")
+
+            # Update metrics history
+            reporter.update_metrics_history(iteration - 1, prev_metrics)
+
+            # Get next parameters
+            next_params, converged = optimizer.suggest_next_parameters(
+                synthetic_embeddings=prev_embeddings,
+                synthetic_params=prev_params,
+                real_embeddings=real_embeddings,
+                metrics=prev_metrics,
+                iteration=iteration,
+                config=mini_config
+            )
+
+            # Generate synthetic images
+            synthetic_images, _ = generator.generate_batch(
+                next_params,
+                replications=mini_config['replications_per_iteration'],
+                seed_offset=iteration * 1000
+            )
+
+            # Save sample images
+            reporter.save_sample_images(synthetic_images, iteration=iteration, label="synthetic", n_samples=2)
+
+            # Extract embeddings
+            synthetic_embeddings_full = embedder.embed_batch(synthetic_images)
+            synthetic_embeddings = pca.transform(synthetic_embeddings_full)
+
+            # Store for 2D projection
+            synthetic_embeddings_by_iter[iteration] = synthetic_embeddings
+
+            # Compute metrics
+            metrics = compute_all_metrics(synthetic_embeddings, real_embeddings)
+
+            print(f"[Test] Iteration {iteration} metrics:")
+            print(f"  mmd_rbf: {metrics['mmd_rbf']:.4f}")
+            print(f"  wasserstein: {metrics['wasserstein']:.4f}")
+            print(f"  mean_nn_distance: {metrics['mean_nn_distance']:.4f}")
+
+            prev_embeddings = synthetic_embeddings
+            prev_params = next_params
+            prev_metrics = metrics
+
+        # Update final metrics
+        reporter.update_metrics_history(2, prev_metrics)
+
+        # Generate visualizations
+        print("\n[Test] Generating visualizations...")
+
+        # 2D projection plot
+        reporter.plot_2d_projection(
+            real_embeddings,
+            synthetic_embeddings_by_iter,
+            initial_embeddings=real_embeddings  # Use real as initial
+        )
+
+        # Metrics optimization plot
+        reporter.plot_metrics_optimization()
+
+        # Pareto front plot
+        pareto_front = optimizer.get_pareto_front()
+        reporter.plot_pareto_front(pareto_front)
+
+        # Summary report
+        reporter.generate_summary_report()
+
+        # Verify all outputs were created
+        print("\n[Test] Verifying visualization outputs...")
+
+        # Check sample images
+        assert (reporter.samples_dir / "iter_000_real_samples.png").exists()
+        assert (reporter.samples_dir / "iter_001_synthetic_samples.png").exists()
+        assert (reporter.samples_dir / "iter_002_synthetic_samples.png").exists()
+
+        # Check visualizations
+        assert (reporter.viz_dir / "distribution_evolution_2d.png").exists()
+        assert (reporter.viz_dir / "metrics_optimization.png").exists()
+        assert (reporter.viz_dir / "pareto_front_2d_projections.png").exists()
+
+        # Check JSON and text outputs
+        assert (reporter.viz_dir / "metrics_history.json").exists()
+        assert (reporter.viz_dir / "experiment_summary.txt").exists()
+
+        print("[Test] ✓ All visualizations generated successfully!")
 
     def test_optimizer_persistence_across_runs(self, mini_config, temp_test_dir):
         """Test that optimizer state persists and can be resumed"""
