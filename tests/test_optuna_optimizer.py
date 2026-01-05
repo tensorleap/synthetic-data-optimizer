@@ -1,8 +1,9 @@
 """
-Unit tests for OptunaOptimizer (Stage 1: Single-objective optimization)
+Unit tests for OptunaOptimizer (Stage 2: Multi-objective optimization)
 """
 
 import pytest
+import optuna
 import numpy as np
 import tempfile
 import shutil
@@ -47,7 +48,7 @@ def test_config():
 
 
 class TestOptunaOptimizer:
-    """Test suite for OptunaOptimizer Stage 1"""
+    """Test suite for OptunaOptimizer Stage 2: Multi-objective optimization"""
 
     def test_initialization(self, temp_experiment_dir, test_config):
         """Test optimizer initialization and SQLite creation"""
@@ -60,7 +61,7 @@ class TestOptunaOptimizer:
         # Check study configuration
         assert optimizer.study is not None
         assert optimizer.study.study_name == 'test_optuna'
-        assert len(optimizer.study.directions) == 1  # Single-objective
+        assert len(optimizer.study.directions) == 3  # Multi-objective (Stage 2)
 
     def test_search_space_valid_parameters(self, temp_experiment_dir, test_config):
         """Test that _define_search_space produces valid parameters within bounds"""
@@ -255,3 +256,80 @@ class TestOptunaOptimizer:
 
         # Cleanup
         shutil.rmtree(temp_dir2)
+
+    def test_multi_objective_three_metrics(self, temp_experiment_dir, test_config):
+        """Test that optimizer handles 3 objectives correctly (Stage 2)"""
+        optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
+
+        # Verify study has 3 objectives
+        assert len(optimizer.study.directions) == 3
+        assert all(d == optuna.study.StudyDirection.MINIMIZE for d in optimizer.study.directions)
+
+    def test_get_pareto_front(self, temp_experiment_dir, test_config):
+        """Test Pareto front retrieval after multiple iterations"""
+        optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
+
+        synthetic_embeddings = np.random.randn(24, 400)
+        synthetic_params = []
+        real_embeddings = np.random.randn(15, 400)
+
+        # Run multiple iterations with different metrics to build Pareto front
+        for i in range(1, 6):
+            # Vary metrics to create trade-offs
+            metrics = {
+                'mmd_rbf': 0.10 + i * 0.01,
+                'wasserstein': 0.08 - i * 0.005,
+                'mean_nn_distance': 3.0 + i * 0.2
+            }
+
+            next_params, _ = optimizer.suggest_next_parameters(
+                synthetic_embeddings,
+                synthetic_params,
+                real_embeddings,
+                metrics,
+                iteration=i,
+                config=test_config
+            )
+
+        # Get Pareto front
+        pareto_front = optimizer.get_pareto_front()
+
+        # Should have some non-dominated solutions
+        assert len(pareto_front) > 0
+        assert all(isinstance(trial, optuna.trial.FrozenTrial) for trial in pareto_front)
+
+        # Each trial should have 3 objective values
+        for trial in pareto_front:
+            assert len(trial.values) == 3
+
+    def test_pareto_front_growth(self, temp_experiment_dir, test_config):
+        """Test that Pareto front can grow over iterations"""
+        optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
+
+        synthetic_embeddings = np.random.randn(24, 400)
+        synthetic_params = []
+        real_embeddings = np.random.randn(15, 400)
+
+        pareto_sizes = []
+
+        # Run iterations and track Pareto front size
+        for i in range(1, 4):
+            metrics = {
+                'mmd_rbf': 0.15 - i * 0.02,
+                'wasserstein': 0.08 - i * 0.01,
+                'mean_nn_distance': 3.5 - i * 0.3
+            }
+
+            optimizer.suggest_next_parameters(
+                synthetic_embeddings,
+                synthetic_params,
+                real_embeddings,
+                metrics,
+                iteration=i,
+                config=test_config
+            )
+
+            pareto_sizes.append(len(optimizer.get_pareto_front()))
+
+        # Pareto front should be non-empty after multiple iterations
+        assert pareto_sizes[-1] > 0

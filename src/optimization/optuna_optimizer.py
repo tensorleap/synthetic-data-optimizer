@@ -1,7 +1,7 @@
 """
 Optuna-based Bayesian optimizer for synthetic data parameter optimization.
 
-Stage 1: Single-objective optimization (minimize mmd_rbf)
+Stage 2: Multi-objective optimization (minimize mmd_rbf, wasserstein, mean_nn_distance)
 """
 
 import optuna
@@ -14,8 +14,9 @@ class OptunaOptimizer:
     """
     Optuna-based optimizer using TPE (Tree-structured Parzen Estimator) sampler.
 
-    Stage 1 features:
-    - Single-objective optimization (minimize mmd_rbf)
+    Stage 2 features:
+    - Multi-objective optimization (minimize mmd_rbf, wasserstein, mean_nn_distance)
+    - Pareto front tracking for trade-off analysis
     - SQLite persistence for study state
     - Respects parameter bounds and precision from config
     - Simple convergence based on max_iterations
@@ -40,21 +41,30 @@ class OptunaOptimizer:
         storage = f"sqlite:///{self.study_path}"
         study_name = config.get('experiment_name', 'optuna_study')
 
-        # Stage 1: Single-objective optimization
+        # Get optimizer config
+        optimizer_config = config.get('optimizer', {})
+        n_startup_trials = optimizer_config.get('n_startup_trials', 10)
+        multivariate = optimizer_config.get('multivariate', True)
+
+        # Stage 2: Multi-objective optimization
         self.study = optuna.create_study(
             study_name=study_name,
             storage=storage,
             load_if_exists=True,
-            direction='minimize',  # Minimize mmd_rbf
+            directions=['minimize', 'minimize', 'minimize'],  # mmd_rbf, wasserstein, mean_nn_distance
             sampler=optuna.samplers.TPESampler(
-                seed=config.get('random_seed', 42)
+                seed=config.get('random_seed', 42),
+                n_startup_trials=n_startup_trials,
+                multivariate=multivariate
             )
         )
 
         print(f"Initialized OptunaOptimizer")
         print(f"  Study storage: {self.study_path}")
         print(f"  Study name: {study_name}")
-        print(f"  Direction: minimize (single-objective)")
+        print(f"  Objectives: 3 (mmd_rbf, wasserstein, mean_nn_distance)")
+        print(f"  TPE startup trials: {n_startup_trials}")
+        print(f"  TPE multivariate: {multivariate}")
 
     def _define_search_space(self, trial: optuna.Trial) -> Dict:
         """
@@ -147,6 +157,15 @@ class OptunaOptimizer:
 
         return params
 
+    def get_pareto_front(self) -> List[optuna.trial.FrozenTrial]:
+        """
+        Get non-dominated trials from Pareto front.
+
+        Returns:
+            List of trials on the Pareto front (non-dominated solutions)
+        """
+        return self.study.best_trials
+
     def suggest_next_parameters(
         self,
         synthetic_embeddings: np.ndarray,
@@ -159,7 +178,7 @@ class OptunaOptimizer:
         """
         Suggest next parameter sets for synthetic data generation.
 
-        Stage 1: Simple ask/tell pattern with single-objective optimization.
+        Stage 2: Multi-objective optimization with 3 metrics.
 
         Args:
             synthetic_embeddings: (N, 400) embeddings of current synthetic samples
@@ -173,16 +192,22 @@ class OptunaOptimizer:
             next_params: List of parameter dicts for next iteration
             converged: Whether optimization should stop
         """
-        # Stage 1: Report results from previous iteration if exists
-        # For now, we report the single objective value (mmd_rbf)
+        # Stage 2: Report results from previous iteration if exists
+        # Report all 3 objectives: mmd_rbf, wasserstein, mean_nn_distance
         if iteration > 0 and len(synthetic_params) > 0:
-            # In Stage 1, we use simple approach: report mmd_rbf as trial value
             # All parameter sets from previous iteration share the same metrics
-            trial_value = metrics['mmd_rbf']
+            trial_values = [
+                metrics['mmd_rbf'],
+                metrics['wasserstein'],
+                metrics['mean_nn_distance']
+            ]
 
-            # Note: In Stage 1, we're not properly tracking trials yet
+            # Note: In Stage 2, we're not properly tracking trials yet
             # This will be fixed in Stage 3 with proper ask/tell pattern
-            print(f"  Iteration {iteration-1} result: mmd_rbf = {trial_value:.4f}")
+            print(f"  Iteration {iteration-1} results:")
+            print(f"    mmd_rbf: {trial_values[0]:.4f}")
+            print(f"    wasserstein: {trial_values[1]:.4f}")
+            print(f"    mean_nn_distance: {trial_values[2]:.4f}")
 
         # Ask Optuna for next parameter sets
         n_sets = config.get('iteration_batch_size', 8)
@@ -195,10 +220,15 @@ class OptunaOptimizer:
             params = self._define_search_space(trial)
             next_params.append(params)
 
-            # For Stage 1, we immediately tell with a dummy value
-            # This will be properly fixed in Stage 3
+            # For Stage 2, we immediately tell with 3 objective values
+            # This will be properly fixed in Stage 3 with proper ask/tell pattern
             if iteration > 0:
-                self.study.tell(trial, metrics.get('mmd_rbf', float('inf')))
+                trial_values = [
+                    metrics.get('mmd_rbf', float('inf')),
+                    metrics.get('wasserstein', float('inf')),
+                    metrics.get('mean_nn_distance', float('inf'))
+                ]
+                self.study.tell(trial, trial_values)
 
         # Simple convergence check: max iterations reached
         max_iterations = config.get('max_iterations', 10)
@@ -206,5 +236,9 @@ class OptunaOptimizer:
 
         if converged:
             print(f"  Convergence: Reached max iterations ({max_iterations})")
+
+        # Print Pareto front size
+        pareto_size = len(self.get_pareto_front())
+        print(f"  Current Pareto front size: {pareto_size}")
 
         return next_params, converged
