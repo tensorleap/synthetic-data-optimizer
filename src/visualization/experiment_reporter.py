@@ -129,19 +129,28 @@ class ExperimentReporter:
                 label='Iteration 0 (Initial)', edgecolors='gray', linewidth=0.5
             )
 
-        # Plot synthetic from each iteration with color gradient
+        # Plot synthetic from first and last iteration only
         iterations = sorted(synthetic_embeddings_by_iter.keys())
-        cmap = plt.cm.viridis
-        colors = [cmap(i / (len(iterations) - 1)) if len(iterations) > 1 else cmap(0.5)
-                  for i in range(len(iterations))]
 
-        for iteration, color in zip(iterations, colors):
-            synthetic_2d = pca_2d.transform(synthetic_embeddings_by_iter[iteration])
+        if len(iterations) > 0:
+            # First iteration (iteration 0)
+            first_iter = iterations[0]
+            synthetic_first_2d = pca_2d.transform(synthetic_embeddings_by_iter[first_iter])
             ax.scatter(
-                synthetic_2d[:, 0], synthetic_2d[:, 1],
-                c=[color], s=70, alpha=0.7,
-                label=f'Iteration {iteration}', edgecolors='black', linewidth=0.3
+                synthetic_first_2d[:, 0], synthetic_first_2d[:, 1],
+                c='orange', s=70, alpha=0.7,
+                label=f'Iteration {first_iter} (Initial)', edgecolors='black', linewidth=0.3
             )
+
+            # Last iteration (if different from first)
+            if len(iterations) > 1:
+                last_iter = iterations[-1]
+                synthetic_last_2d = pca_2d.transform(synthetic_embeddings_by_iter[last_iter])
+                ax.scatter(
+                    synthetic_last_2d[:, 0], synthetic_last_2d[:, 1],
+                    c='green', s=70, alpha=0.7,
+                    label=f'Iteration {last_iter} (Final)', edgecolors='black', linewidth=0.3
+                )
 
         ax.set_xlabel(f'PC1 ({pca_2d.explained_variance_ratio_[0]:.1%} variance)', fontsize=12)
         ax.set_ylabel(f'PC2 ({pca_2d.explained_variance_ratio_[1]:.1%} variance)', fontsize=12)
