@@ -13,6 +13,7 @@ from ..embedding.dinov2_embedder import DinoV2Embedder
 from ..embedding.pca_projector import PCAProjector
 from ..optimization.metrics import compute_all_metrics
 from ..optimization.optimizer_placeholder import suggest_next_parameters
+from ..visualization.experiment_reporter import ExperimentReporter
 from .iteration_manager import IterationManager
 
 
@@ -42,9 +43,15 @@ class ExperimentRunner:
         # Iteration manager
         self.iteration_manager = IterationManager(Path(self.config['experiment_dir']))
 
+        # Experiment reporter for visualizations
+        self.reporter = ExperimentReporter(Path(self.config['experiment_dir']))
+
         # Store real embeddings (fixed reference)
         self.real_embeddings_768d = None
         self.real_embeddings_400d = None
+
+        # Track embeddings by iteration for visualization
+        self.synthetic_embeddings_by_iter = {}
 
         print(f"Initialized ExperimentRunner")
         print(f"Experiment directory: {self.config['experiment_dir']}")
@@ -157,6 +164,15 @@ class ExperimentRunner:
             }
         )
 
+        # Save sample images
+        print("\nSaving sample images...")
+        self.reporter.save_sample_images(real_images, iteration=0, label="real", n_samples=6)
+        self.reporter.save_sample_images(synthetic_images, iteration=0, label="synthetic", n_samples=6)
+
+        # Track iteration 0 metrics and embeddings
+        self.reporter.update_metrics_history(0, metrics)
+        self.synthetic_embeddings_by_iter[0] = synthetic_embeddings_400d
+
         print("\nIteration 0 complete!")
 
         return {
@@ -234,6 +250,14 @@ class ExperimentRunner:
             }
         )
 
+        # Save sample images
+        print("\nSaving sample images...")
+        self.reporter.save_sample_images(synthetic_images, iteration=iteration, label="synthetic", n_samples=6)
+
+        # Track metrics and embeddings
+        self.reporter.update_metrics_history(iteration, metrics)
+        self.synthetic_embeddings_by_iter[iteration] = synthetic_embeddings_400d
+
         print(f"\nIteration {iteration} complete!")
 
         return metrics, converged
@@ -277,11 +301,30 @@ class ExperimentRunner:
 
         self.iteration_manager.save_summary(summary)
 
+        # Generate visualizations
+        print("\n" + "=" * 60)
+        print("GENERATING VISUALIZATIONS")
+        print("=" * 60)
+
+        # 2D projection plot
+        self.reporter.plot_2d_projection(
+            self.real_embeddings_400d,
+            self.synthetic_embeddings_by_iter,
+            initial_embeddings=self.synthetic_embeddings_by_iter[0]
+        )
+
+        # Metrics optimization plot
+        self.reporter.plot_metrics_optimization()
+
+        # Summary report
+        self.reporter.generate_summary_report()
+
         print("\n" + "=" * 60)
         print("EXPERIMENT COMPLETE")
         print("=" * 60)
         print(f"Total iterations: {iteration}")
         print(f"Converged: {converged}")
         print(f"Results saved to: {self.config['experiment_dir']}")
+        print(f"Visualizations saved to: {self.reporter.viz_dir}")
 
         return summary

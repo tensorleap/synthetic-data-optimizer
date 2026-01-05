@@ -15,27 +15,24 @@ random_seed: 1
 
 # Dataset sizes
 real:
-  param_sets: 5
+  param_sets: 100
   replications: 3
-  total_size: 15  # 5*3
 
 close:
-  param_sets: 8
+  param_sets: 200
   replications: 3
-  total_size: 24
 
 far:
-  param_sets: 8
+  param_sets: 200
   replications: 3
-  total_size: 24
 
 # Iteration settings
-iteration_batch_size: 8      # param sets per iteration
+iteration_batch_size: 200      # param sets per iteration
 replications_per_iteration: 3
 max_iterations: 10
 
 # Initial condition for optimization (iteration 0)
-initial_condition: 'far'  # 'close' or 'far' - determines starting synthetic distribution
+initial_condition: 'close'  # 'close' or 'far' - determines starting synthetic distribution
 
 # Parameter space (search bounds)
 param_bounds:
