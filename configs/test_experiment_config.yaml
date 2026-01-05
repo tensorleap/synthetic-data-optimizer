@@ -3,7 +3,6 @@ base_image_dir: ../data/base_chips
 close:
   param_sets: 4
   replications: 2
-  total_size: 24
 convergence_threshold: 0.05
 dino_model: dinov2_vitb14
 early_stop_patience: 3
@@ -12,7 +11,6 @@ experiment_name: test_5_iterations
 far:
   param_sets: 4
   replications: 2
-  total_size: 24
 initial_condition: far
 iteration_batch_size: 4
 max_iterations: 5
@@ -124,5 +122,4 @@ random_seed: 1
 real:
   param_sets: 3
   replications: 2
-  total_size: 15
 replications_per_iteration: 2
