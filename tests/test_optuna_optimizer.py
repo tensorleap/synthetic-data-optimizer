@@ -1,5 +1,5 @@
 """
-Unit tests for OptunaOptimizer (Stage 2: Multi-objective optimization)
+Unit tests for OptunaOptimizer (Stage 3: Proper ask/tell pattern)
 """
 
 import pytest
@@ -48,7 +48,7 @@ def test_config():
 
 
 class TestOptunaOptimizer:
-    """Test suite for OptunaOptimizer Stage 2: Multi-objective optimization"""
+    """Test suite for OptunaOptimizer Stage 3: Proper ask/tell pattern"""
 
     def test_initialization(self, temp_experiment_dir, test_config):
         """Test optimizer initialization and SQLite creation"""
@@ -333,3 +333,206 @@ class TestOptunaOptimizer:
 
         # Pareto front should be non-empty after multiple iterations
         assert pareto_sizes[-1] > 0
+
+    def test_pending_trials_initialization(self, temp_experiment_dir, test_config):
+        """Test that pending_trials dict is initialized (Stage 3)"""
+        optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
+
+        # Verify pending_trials exists and is empty
+        assert hasattr(optimizer, 'pending_trials')
+        assert isinstance(optimizer.pending_trials, dict)
+        assert len(optimizer.pending_trials) == 0
+
+    def test_pending_trials_stored_on_ask(self, temp_experiment_dir, test_config):
+        """Test that trials are stored as pending when asked (Stage 3)"""
+        optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
+
+        synthetic_embeddings = np.random.randn(24, 400)
+        synthetic_params = []
+        real_embeddings = np.random.randn(15, 400)
+        metrics = {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+
+        # Ask for parameters for iteration 0
+        next_params, _ = optimizer.suggest_next_parameters(
+            synthetic_embeddings,
+            synthetic_params,
+            real_embeddings,
+            metrics,
+            iteration=0,
+            config=test_config
+        )
+
+        # Verify trials are stored as pending for iteration 0
+        assert 0 in optimizer.pending_trials
+        assert len(optimizer.pending_trials[0]) == test_config['iteration_batch_size']
+
+    def test_pending_trials_completed_on_tell(self, temp_experiment_dir, test_config):
+        """Test that pending trials are completed and removed when results are reported (Stage 3)"""
+        optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
+
+        synthetic_embeddings = np.random.randn(24, 400)
+        synthetic_params = []
+        real_embeddings = np.random.randn(15, 400)
+
+        # Iteration 0: Ask for parameters
+        metrics_0 = {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        next_params_0, _ = optimizer.suggest_next_parameters(
+            synthetic_embeddings,
+            synthetic_params,
+            real_embeddings,
+            metrics_0,
+            iteration=0,
+            config=test_config
+        )
+
+        # Verify iteration 0 trials are pending
+        assert 0 in optimizer.pending_trials
+        n_trials_iter0 = len(optimizer.pending_trials[0])
+
+        # Iteration 1: Report results for iteration 0 and ask for new parameters
+        metrics_1 = {'mmd_rbf': 0.12, 'wasserstein': 0.07, 'mean_nn_distance': 3.2}
+        next_params_1, _ = optimizer.suggest_next_parameters(
+            synthetic_embeddings,
+            next_params_0,
+            real_embeddings,
+            metrics_1,
+            iteration=1,
+            config=test_config
+        )
+
+        # Verify iteration 0 trials were completed and removed
+        assert 0 not in optimizer.pending_trials
+
+        # Verify iteration 1 trials are now pending
+        assert 1 in optimizer.pending_trials
+        assert len(optimizer.pending_trials[1]) == test_config['iteration_batch_size']
+
+        # Verify trials were actually completed in the study
+        completed_trials = [t for t in optimizer.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        assert len(completed_trials) == n_trials_iter0
+
+    def test_ask_tell_pattern_multiple_iterations(self, temp_experiment_dir, test_config):
+        """Test proper ask/tell pattern over multiple iterations (Stage 3)"""
+        optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
+
+        synthetic_embeddings = np.random.randn(24, 400)
+        synthetic_params = []
+        real_embeddings = np.random.randn(15, 400)
+
+        # Track completed trials
+        completed_trials_per_iteration = []
+
+        for iteration in range(3):
+            metrics = {
+                'mmd_rbf': 0.15 - iteration * 0.02,
+                'wasserstein': 0.08 - iteration * 0.01,
+                'mean_nn_distance': 3.5 - iteration * 0.3
+            }
+
+            # Ask for next parameters
+            next_params, _ = optimizer.suggest_next_parameters(
+                synthetic_embeddings,
+                synthetic_params,
+                real_embeddings,
+                metrics,
+                iteration=iteration,
+                config=test_config
+            )
+
+            # Verify current iteration is pending
+            assert iteration in optimizer.pending_trials
+            assert len(optimizer.pending_trials[iteration]) == test_config['iteration_batch_size']
+
+            # Verify previous iteration was completed (if exists)
+            if iteration > 0:
+                assert (iteration - 1) not in optimizer.pending_trials
+
+            # Track completed trials
+            completed_trials = [t for t in optimizer.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+            completed_trials_per_iteration.append(len(completed_trials))
+
+            # Update for next iteration
+            synthetic_params = next_params
+
+        # Verify trials were completed incrementally
+        # Iteration 0: no completed trials (no previous iteration to report)
+        assert completed_trials_per_iteration[0] == 0
+        # Iteration 1: iteration 0's trials should be completed
+        assert completed_trials_per_iteration[1] == test_config['iteration_batch_size']
+        # Iteration 2: both iteration 0 and 1's trials should be completed
+        assert completed_trials_per_iteration[2] == 2 * test_config['iteration_batch_size']
+
+    def test_trials_receive_correct_metrics(self, temp_experiment_dir, test_config):
+        """Test that trials receive the correct metric values when completed (Stage 3)"""
+        optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
+
+        synthetic_embeddings = np.random.randn(24, 400)
+        synthetic_params = []
+        real_embeddings = np.random.randn(15, 400)
+
+        # Iteration 0
+        # Note: metrics parameter in iteration 0 doesn't matter (no previous iteration to report)
+        metrics_dummy = {'mmd_rbf': 0.99, 'wasserstein': 0.99, 'mean_nn_distance': 99.9}
+        next_params_0, _ = optimizer.suggest_next_parameters(
+            synthetic_embeddings,
+            synthetic_params,
+            real_embeddings,
+            metrics_dummy,
+            iteration=0,
+            config=test_config
+        )
+
+        # Iteration 1: Pass metrics from iteration 0 - these will be used to complete iteration 0 trials
+        metrics_0 = {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        next_params_1, _ = optimizer.suggest_next_parameters(
+            synthetic_embeddings,
+            next_params_0,
+            real_embeddings,
+            metrics_0,  # These are iteration 0's results
+            iteration=1,
+            config=test_config
+        )
+
+        # Verify completed trials (iteration 0) have correct metric values
+        completed_trials = [t for t in optimizer.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        for trial in completed_trials:
+            assert len(trial.values) == 3
+            assert trial.values[0] == metrics_0['mmd_rbf']
+            assert trial.values[1] == metrics_0['wasserstein']
+            assert trial.values[2] == metrics_0['mean_nn_distance']
+
+    def test_no_orphaned_trials(self, temp_experiment_dir, test_config):
+        """Test that no trials are left in pending state (Stage 3)"""
+        optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
+
+        synthetic_embeddings = np.random.randn(24, 400)
+        synthetic_params = []
+        real_embeddings = np.random.randn(15, 400)
+
+        # Run 3 iterations
+        for iteration in range(3):
+            metrics = {
+                'mmd_rbf': 0.15 - iteration * 0.02,
+                'wasserstein': 0.08 - iteration * 0.01,
+                'mean_nn_distance': 3.5 - iteration * 0.3
+            }
+
+            next_params, _ = optimizer.suggest_next_parameters(
+                synthetic_embeddings,
+                synthetic_params,
+                real_embeddings,
+                metrics,
+                iteration=iteration,
+                config=test_config
+            )
+
+            synthetic_params = next_params
+
+        # Only the last iteration should have pending trials
+        assert len(optimizer.pending_trials) == 1
+        assert 2 in optimizer.pending_trials  # Last iteration
+
+        # All other trials should be completed
+        completed_trials = [t for t in optimizer.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        # Iterations 0 and 1 should be completed
+        assert len(completed_trials) == 2 * test_config['iteration_batch_size']
