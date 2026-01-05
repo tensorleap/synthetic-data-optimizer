@@ -51,7 +51,7 @@ class ExperimentRunner:
 
     def run_iteration_0(self) -> Dict:
         """
-        Run iteration 0: Generate initial distributions and fit PCA.
+        Run iteration 0: Generate real distribution and initial synthetic distribution.
 
         Returns:
             Dictionary with iteration 0 results
@@ -61,9 +61,12 @@ class ExperimentRunner:
         print("=" * 60)
 
         seed = self.config['random_seed']
+        initial_condition = self.config['initial_condition']
+
+        print(f"\nInitial condition: {initial_condition}")
 
         # Generate real distribution
-        print("\n[1/6] Generating real distribution...")
+        print("\n[1/5] Generating real distribution...")
         real_params = self.sampler.sample_parameter_sets(
             'real',
             n_sets=self.config['real']['param_sets'],
@@ -76,43 +79,28 @@ class ExperimentRunner:
         )
         print(f"Generated {len(real_images)} real images")
 
-        # Generate close distribution
-        print("\n[2/6] Generating close distribution...")
-        close_params = self.sampler.sample_parameter_sets(
-            'close',
-            n_sets=self.config['close']['param_sets'],
+        # Generate initial synthetic distribution based on initial_condition
+        print(f"\n[2/5] Generating synthetic distribution from '{initial_condition}'...")
+        synthetic_params = self.sampler.sample_parameter_sets(
+            initial_condition,
+            n_sets=self.config[initial_condition]['param_sets'],
             seed=seed + 100
         )
-        close_images, close_metadata = self.generator.generate_batch(
-            close_params,
-            replications=self.config['close']['replications'],
+        synthetic_images, synthetic_metadata = self.generator.generate_batch(
+            synthetic_params,
+            replications=self.config[initial_condition]['replications'],
             seed_offset=1000
         )
-        print(f"Generated {len(close_images)} close images")
-
-        # Generate far distribution
-        print("\n[3/6] Generating far distribution...")
-        far_params = self.sampler.sample_parameter_sets(
-            'far',
-            n_sets=self.config['far']['param_sets'],
-            seed=seed + 200
-        )
-        far_images, far_metadata = self.generator.generate_batch(
-            far_params,
-            replications=self.config['far']['replications'],
-            seed_offset=2000
-        )
-        print(f"Generated {len(far_images)} far images")
+        print(f"Generated {len(synthetic_images)} synthetic images")
 
         # Extract embeddings
-        print("\n[4/6] Extracting embeddings with DiNOv2...")
+        print("\n[3/5] Extracting embeddings with DiNOv2...")
         real_embeddings = self.embedder.embed_batch(real_images)
-        close_embeddings = self.embedder.embed_batch(close_images)
-        far_embeddings = self.embedder.embed_batch(far_images)
+        synthetic_embeddings = self.embedder.embed_batch(synthetic_images)
 
         # Fit PCA on combined data
-        print("\n[5/6] Fitting PCA models...")
-        all_embeddings = np.vstack([real_embeddings, close_embeddings, far_embeddings])
+        print("\n[4/5] Fitting PCA models...")
+        all_embeddings = np.vstack([real_embeddings, synthetic_embeddings])
 
         # Stage 1: Fit PCA for optimization (768 -> 400D)
         print("  - Stage 1: 768 -> 400D for optimization")
@@ -132,38 +120,38 @@ class ExperimentRunner:
 
         # Transform to 400D embeddings
         real_embeddings_400d = self.pca_embedding.transform(real_embeddings)
-        close_embeddings_400d = self.pca_embedding.transform(close_embeddings)
-        far_embeddings_400d = self.pca_embedding.transform(far_embeddings)
+        synthetic_embeddings_400d = self.pca_embedding.transform(synthetic_embeddings)
 
         # Store real embeddings as reference
         self.real_embeddings_768d = real_embeddings
         self.real_embeddings_400d = real_embeddings_400d
 
         # Calculate metrics
-        print("\n[6/6] Computing baseline metrics...")
-        close_metrics = compute_all_metrics(close_embeddings_400d, real_embeddings_400d)
-        far_metrics = compute_all_metrics(far_embeddings_400d, real_embeddings_400d)
+        print("\n[5/5] Computing baseline metrics...")
+        metrics = compute_all_metrics(synthetic_embeddings_400d, real_embeddings_400d)
 
-        print("\n  Close vs Real:")
-        print(f"    MMD (RBF): {close_metrics['mmd_rbf']:.4f}")
-        print(f"    Wasserstein: {close_metrics['wasserstein']:.4f}")
-        print(f"    Mean NN distance: {close_metrics['mean_nn_distance']:.4f}")
-
-        print("\n  Far vs Real:")
-        print(f"    MMD (RBF): {far_metrics['mmd_rbf']:.4f}")
-        print(f"    Wasserstein: {far_metrics['wasserstein']:.4f}")
-        print(f"    Mean NN distance: {far_metrics['mean_nn_distance']:.4f}")
+        print(f"\n  Synthetic ({initial_condition}) vs Real:")
+        print(f"    MMD (RBF): {metrics['mmd_rbf']:.4f}")
+        print(f"    Wasserstein: {metrics['wasserstein']:.4f}")
+        print(f"    Mean NN distance: {metrics['mean_nn_distance']:.4f}")
+        print(f"    Coverage: {metrics['coverage']:.4f}")
 
         # Save iteration 0 data
+        # Save both synthetic and real embeddings as separate files
+        iter_0_embeddings = {
+            'synthetic': synthetic_embeddings_400d,
+            'real': real_embeddings_400d
+        }
+
         self.iteration_manager.save_iteration(
             iteration=0,
-            params={'real': real_params, 'close': close_params, 'far': far_params},
-            embeddings={'real': real_embeddings_400d, 'close': close_embeddings_400d, 'far': far_embeddings_400d},
-            metrics={'close_vs_real': close_metrics, 'far_vs_real': far_metrics},
+            params=synthetic_params,
+            embeddings=iter_0_embeddings,
+            metrics=metrics,
             metadata={
+                'initial_condition': initial_condition,
                 'n_real': len(real_images),
-                'n_close': len(close_images),
-                'n_far': len(far_images),
+                'n_synthetic': len(synthetic_images),
                 'pca_explained_variance_400d': float(self.pca_embedding.explained_variance_ratio_.sum()),
                 'pca_explained_variance_2d': float(self.pca_viz.explained_variance_ratio_.sum())
             }
@@ -172,8 +160,8 @@ class ExperimentRunner:
         print("\nIteration 0 complete!")
 
         return {
-            'close_metrics': close_metrics,
-            'far_metrics': far_metrics
+            'metrics': metrics,
+            'initial_condition': initial_condition
         }
 
     def run_iteration(self, iteration: int) -> Tuple[Dict, bool]:
@@ -196,22 +184,13 @@ class ExperimentRunner:
         prev_params = prev_data['params']
         prev_metrics = prev_data['metrics']
 
-        # For iteration 1+, we need synthetic data from previous iteration
-        # Use the 'close' distribution as the "current best" synthetic
-        if isinstance(prev_embeddings, dict):
-            synthetic_embeddings = prev_embeddings['close']
-            synthetic_params = prev_params['close']
-        else:
-            synthetic_embeddings = prev_embeddings
-            synthetic_params = prev_params
-
         # Get next parameter sets from optimizer
         print("\n[1/4] Getting next parameter sets from optimizer...")
         next_params, converged = suggest_next_parameters(
-            synthetic_embeddings=synthetic_embeddings,
-            synthetic_params=synthetic_params,
+            synthetic_embeddings=prev_embeddings,
+            synthetic_params=prev_params,
             real_embeddings=self.real_embeddings_400d,
-            metrics=prev_metrics if isinstance(prev_metrics, dict) and 'mmd_rbf' in prev_metrics else prev_metrics.get('close_vs_real', {}),
+            metrics=prev_metrics,
             iteration=iteration,
             config=self.config
         )
