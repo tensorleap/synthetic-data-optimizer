@@ -1,7 +1,5 @@
 """
 Optuna-based Bayesian optimizer for synthetic data parameter optimization.
-
-Stage 3: Proper ask/tell pattern with pending trials tracking
 """
 
 import optuna
@@ -14,9 +12,10 @@ class OptunaOptimizer:
     """
     Optuna-based optimizer using TPE (Tree-structured Parzen Estimator) sampler.
 
-    Stage 3 features:
+    Features:
     - Multi-objective optimization (minimize mmd_rbf, wasserstein, mean_nn_distance)
     - Proper ask/tell pattern with pending trials tracking
+    - Per-parameter-set metrics evaluation
     - Pareto front tracking for trade-off analysis
     - SQLite persistence for study state
     - Respects parameter bounds and precision from config
@@ -47,7 +46,7 @@ class OptunaOptimizer:
         n_startup_trials = optimizer_config.get('n_startup_trials', 10)
         multivariate = optimizer_config.get('multivariate', True)
 
-        # Stage 2: Multi-objective optimization
+        # Multi-objective optimization
         self.study = optuna.create_study(
             study_name=study_name,
             storage=storage,
@@ -60,10 +59,10 @@ class OptunaOptimizer:
             )
         )
 
-        # Stage 3: Track pending trials by iteration
+        # Track pending trials by iteration
         self.pending_trials = {}  # {iteration: [trial1, trial2, ...]}
 
-        print(f"Initialized OptunaOptimizer (Stage 3)")
+        print(f"Initialized OptunaOptimizer")
         print(f"  Study storage: {self.study_path}")
         print(f"  Study name: {study_name}")
         print(f"  Objectives: 3 (mmd_rbf, wasserstein, mean_nn_distance)")
@@ -175,20 +174,18 @@ class OptunaOptimizer:
         synthetic_embeddings: np.ndarray,
         synthetic_params: List[Dict],
         real_embeddings: np.ndarray,
-        metrics: Dict[str, float],
+        metrics_list: List[Dict[str, float]],
         iteration: int,
         config: Dict
     ) -> Tuple[List[Dict], bool]:
         """
         Suggest next parameter sets for synthetic data generation.
 
-        Stage 3: Proper ask/tell pattern with pending trials tracking.
-
         Args:
             synthetic_embeddings: (N, 400) embeddings of current synthetic samples
             synthetic_params: List of parameter dicts used to generate synthetic_embeddings
             real_embeddings: (M, 400) embeddings of real samples (fixed reference)
-            metrics: Distance metrics for current iteration (mmd_rbf, wasserstein, etc.)
+            metrics_list: List of metric dicts, one per parameter set from previous iteration
             iteration: Current iteration number
             config: Experiment configuration dict
 
@@ -196,31 +193,38 @@ class OptunaOptimizer:
             next_params: List of parameter dicts for next iteration
             converged: Whether optimization should stop
         """
-        # Stage 3: Step 1 - Report results from PREVIOUS iteration
+        # Report results from PREVIOUS iteration
         if iteration > 0 and (iteration - 1) in self.pending_trials:
             prev_trials = self.pending_trials[iteration - 1]
 
-            # All parameter sets from same iteration share the same metrics
-            trial_values = [
-                metrics['mmd_rbf'],
-                metrics['wasserstein'],
-                metrics['mean_nn_distance']
-            ]
+            # Verify we have metrics for each trial
+            if len(metrics_list) != len(prev_trials):
+                raise ValueError(
+                    f"Mismatch: {len(metrics_list)} metric dicts provided but "
+                    f"{len(prev_trials)} trials pending for iteration {iteration-1}"
+                )
 
             print(f"  Reporting results for iteration {iteration-1}:")
-            print(f"    mmd_rbf: {trial_values[0]:.4f}")
-            print(f"    wasserstein: {trial_values[1]:.4f}")
-            print(f"    mean_nn_distance: {trial_values[2]:.4f}")
             print(f"    Completing {len(prev_trials)} trials from iteration {iteration-1}")
 
-            # Tell Optuna about each trial's results
-            for trial in prev_trials:
+            # Tell Optuna about each trial's individual results
+            for trial, metrics in zip(prev_trials, metrics_list):
+                trial_values = [
+                    metrics['mmd_rbf'],
+                    metrics['wasserstein'],
+                    metrics['mean_nn_distance']
+                ]
                 self.study.tell(trial, trial_values)
+
+                # Print individual trial results
+                print(f"      Trial {trial.number}: mmd_rbf={trial_values[0]:.4f}, "
+                      f"wasserstein={trial_values[1]:.4f}, "
+                      f"mean_nn_distance={trial_values[2]:.4f}")
 
             # Clean up completed trials
             del self.pending_trials[iteration - 1]
 
-        # Stage 3: Step 2 - Ask for next batch of parameter sets
+        # Ask for next batch of parameter sets
         n_sets = config.get('iteration_batch_size', 8)
         next_params = []
         trials = []
@@ -233,7 +237,7 @@ class OptunaOptimizer:
             next_params.append(params)
             trials.append(trial)
 
-        # Stage 3: Step 3 - Store pending trials for this iteration
+        # Store pending trials for this iteration
         self.pending_trials[iteration] = trials
         print(f"  Stored {len(trials)} pending trials for iteration {iteration}")
 
