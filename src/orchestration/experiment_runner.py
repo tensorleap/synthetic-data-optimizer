@@ -11,8 +11,8 @@ from ..data_generation.parameter_sampler import ParameterSampler
 from ..data_generation.void_generator import VoidGenerator
 from ..embedding.dinov2_embedder import DinoV2Embedder
 from ..embedding.pca_projector import PCAProjector
-from ..optimization.metrics import compute_all_metrics
-from ..optimization.optimizer_placeholder import suggest_next_parameters
+from ..optimization.metrics import compute_all_metrics, compute_per_param_set_metrics
+from ..optimization.optuna_optimizer import OptunaOptimizer
 from ..visualization.experiment_reporter import ExperimentReporter
 from .iteration_manager import IterationManager
 
@@ -42,6 +42,12 @@ class ExperimentRunner:
 
         # Iteration manager
         self.iteration_manager = IterationManager(Path(self.config['experiment_dir']))
+
+        # Optuna optimizer
+        self.optimizer = OptunaOptimizer(
+            experiment_dir=Path(self.config['experiment_dir']),
+            config=self.config
+        )
 
         # Experiment reporter for visualizations
         self.reporter = ExperimentReporter(Path(self.config['experiment_dir']))
@@ -133,15 +139,29 @@ class ExperimentRunner:
         self.real_embeddings_768d = real_embeddings
         self.real_embeddings_400d = real_embeddings_400d
 
-        # Calculate metrics
-        print("\n[5/5] Computing baseline metrics...")
-        metrics = compute_all_metrics(synthetic_embeddings_400d, real_embeddings_400d)
+        # Calculate per-parameter-set metrics
+        print("\n[5/5] Computing baseline per-parameter-set metrics...")
+        n_param_sets = len(synthetic_params)
+        metrics_list = compute_per_param_set_metrics(
+            synthetic_embeddings_400d,
+            synthetic_metadata,
+            real_embeddings_400d,
+            n_param_sets=n_param_sets
+        )
 
-        print(f"\n  Synthetic ({initial_condition}) vs Real:")
-        print(f"    MMD (RBF): {metrics['mmd_rbf']:.4f}")
-        print(f"    Wasserstein: {metrics['wasserstein']:.4f}")
-        print(f"    Mean NN distance: {metrics['mean_nn_distance']:.4f}")
-        print(f"    Coverage: {metrics['coverage']:.4f}")
+        # Compute average metrics for display
+        avg_metrics = {
+            'mmd_rbf': np.mean([m['mmd_rbf'] for m in metrics_list]),
+            'wasserstein': np.mean([m['wasserstein'] for m in metrics_list]),
+            'mean_nn_distance': np.mean([m['mean_nn_distance'] for m in metrics_list]),
+            'coverage': np.mean([m['coverage'] for m in metrics_list])
+        }
+
+        print(f"\n  Average Synthetic ({initial_condition}) vs Real (across {n_param_sets} parameter sets):")
+        print(f"    MMD (RBF): {avg_metrics['mmd_rbf']:.4f}")
+        print(f"    Wasserstein: {avg_metrics['wasserstein']:.4f}")
+        print(f"    Mean NN distance: {avg_metrics['mean_nn_distance']:.4f}")
+        print(f"    Coverage: {avg_metrics['coverage']:.4f}")
 
         # Save iteration 0 data
         # Save both synthetic and real embeddings as separate files
@@ -154,11 +174,12 @@ class ExperimentRunner:
             iteration=0,
             params=synthetic_params,
             embeddings=iter_0_embeddings,
-            metrics=metrics,
+            metrics=metrics_list,  # Save list of per-param-set metrics
             metadata={
                 'initial_condition': initial_condition,
                 'n_real': len(real_images),
                 'n_synthetic': len(synthetic_images),
+                'n_param_sets': n_param_sets,
                 'pca_explained_variance_400d': float(self.pca_embedding.explained_variance_ratio_.sum()),
                 'pca_explained_variance_2d': float(self.pca_viz.explained_variance_ratio_.sum())
             }
@@ -169,14 +190,14 @@ class ExperimentRunner:
         self.reporter.save_sample_images(real_images, iteration=0, label="real", n_samples=6)
         self.reporter.save_sample_images(synthetic_images, iteration=0, label="synthetic", n_samples=6)
 
-        # Track iteration 0 metrics and embeddings
-        self.reporter.update_metrics_history(0, metrics)
+        # Track iteration 0 metrics and embeddings (use average metrics for visualization)
+        self.reporter.update_metrics_history(0, avg_metrics)
         self.synthetic_embeddings_by_iter[0] = synthetic_embeddings_400d
 
         print("\nIteration 0 complete!")
 
         return {
-            'metrics': metrics,
+            'metrics': metrics_list,
             'initial_condition': initial_condition
         }
 
@@ -198,15 +219,15 @@ class ExperimentRunner:
         prev_data = self.iteration_manager.load_iteration(iteration - 1)
         prev_embeddings = prev_data['embeddings']
         prev_params = prev_data['params']
-        prev_metrics = prev_data['metrics']
+        prev_metrics_list = prev_data['metrics']  # Now a list of metric dicts
 
         # Get next parameter sets from optimizer
         print("\n[1/4] Getting next parameter sets from optimizer...")
-        next_params, converged = suggest_next_parameters(
+        next_params, converged = self.optimizer.suggest_next_parameters(
             synthetic_embeddings=prev_embeddings,
             synthetic_params=prev_params,
             real_embeddings=self.real_embeddings_400d,
-            metrics=prev_metrics,
+            metrics_list=prev_metrics_list,
             iteration=iteration,
             config=self.config
         )
@@ -228,25 +249,40 @@ class ExperimentRunner:
         synthetic_embeddings_768d = self.embedder.embed_batch(synthetic_images)
         synthetic_embeddings_400d = self.pca_embedding.transform(synthetic_embeddings_768d)
 
-        # Calculate metrics
-        print("\n[4/4] Computing metrics...")
-        metrics = compute_all_metrics(synthetic_embeddings_400d, self.real_embeddings_400d)
+        # Calculate per-parameter-set metrics
+        print("\n[4/4] Computing per-parameter-set metrics...")
+        n_param_sets = len(next_params)
+        metrics_list = compute_per_param_set_metrics(
+            synthetic_embeddings_400d,
+            synthetic_metadata,
+            self.real_embeddings_400d,
+            n_param_sets=n_param_sets
+        )
 
-        print(f"\n  Synthetic vs Real:")
-        print(f"    MMD (RBF): {metrics['mmd_rbf']:.4f}")
-        print(f"    Wasserstein: {metrics['wasserstein']:.4f}")
-        print(f"    Mean NN distance: {metrics['mean_nn_distance']:.4f}")
-        print(f"    Coverage: {metrics['coverage']:.4f}")
+        # Compute average metrics for display
+        avg_metrics = {
+            'mmd_rbf': np.mean([m['mmd_rbf'] for m in metrics_list]),
+            'wasserstein': np.mean([m['wasserstein'] for m in metrics_list]),
+            'mean_nn_distance': np.mean([m['mean_nn_distance'] for m in metrics_list]),
+            'coverage': np.mean([m['coverage'] for m in metrics_list])
+        }
+
+        print(f"\n  Average Synthetic vs Real (across {n_param_sets} parameter sets):")
+        print(f"    MMD (RBF): {avg_metrics['mmd_rbf']:.4f}")
+        print(f"    Wasserstein: {avg_metrics['wasserstein']:.4f}")
+        print(f"    Mean NN distance: {avg_metrics['mean_nn_distance']:.4f}")
+        print(f"    Coverage: {avg_metrics['coverage']:.4f}")
 
         # Save iteration data
         self.iteration_manager.save_iteration(
             iteration=iteration,
             params=next_params,
             embeddings=synthetic_embeddings_400d,
-            metrics=metrics,
+            metrics=metrics_list,  # Save list of per-param-set metrics
             metadata={
                 'n_images': len(synthetic_images),
-                'converged': converged
+                'converged': converged,
+                'n_param_sets': n_param_sets
             }
         )
 
@@ -254,13 +290,13 @@ class ExperimentRunner:
         print("\nSaving sample images...")
         self.reporter.save_sample_images(synthetic_images, iteration=iteration, label="synthetic", n_samples=6)
 
-        # Track metrics and embeddings
-        self.reporter.update_metrics_history(iteration, metrics)
+        # Track metrics and embeddings (use average metrics for visualization)
+        self.reporter.update_metrics_history(iteration, avg_metrics)
         self.synthetic_embeddings_by_iter[iteration] = synthetic_embeddings_400d
 
         print(f"\nIteration {iteration} complete!")
 
-        return metrics, converged
+        return metrics_list, converged
 
     def run(self) -> Dict:
         """
