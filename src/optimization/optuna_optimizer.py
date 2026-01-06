@@ -1,7 +1,7 @@
 """
 Optuna-based Bayesian optimizer for synthetic data parameter optimization.
 
-Stage 2: Multi-objective optimization (minimize mmd_rbf, wasserstein, mean_nn_distance)
+Stage 3: Proper ask/tell pattern with pending trials tracking
 """
 
 import optuna
@@ -14,8 +14,9 @@ class OptunaOptimizer:
     """
     Optuna-based optimizer using TPE (Tree-structured Parzen Estimator) sampler.
 
-    Stage 2 features:
+    Stage 3 features:
     - Multi-objective optimization (minimize mmd_rbf, wasserstein, mean_nn_distance)
+    - Proper ask/tell pattern with pending trials tracking
     - Pareto front tracking for trade-off analysis
     - SQLite persistence for study state
     - Respects parameter bounds and precision from config
@@ -59,7 +60,10 @@ class OptunaOptimizer:
             )
         )
 
-        print(f"Initialized OptunaOptimizer")
+        # Stage 3: Track pending trials by iteration
+        self.pending_trials = {}  # {iteration: [trial1, trial2, ...]}
+
+        print(f"Initialized OptunaOptimizer (Stage 3)")
         print(f"  Study storage: {self.study_path}")
         print(f"  Study name: {study_name}")
         print(f"  Objectives: 3 (mmd_rbf, wasserstein, mean_nn_distance)")
@@ -178,7 +182,7 @@ class OptunaOptimizer:
         """
         Suggest next parameter sets for synthetic data generation.
 
-        Stage 2: Multi-objective optimization with 3 metrics.
+        Stage 3: Proper ask/tell pattern with pending trials tracking.
 
         Args:
             synthetic_embeddings: (N, 400) embeddings of current synthetic samples
@@ -192,26 +196,34 @@ class OptunaOptimizer:
             next_params: List of parameter dicts for next iteration
             converged: Whether optimization should stop
         """
-        # Stage 2: Report results from previous iteration if exists
-        # Report all 3 objectives: mmd_rbf, wasserstein, mean_nn_distance
-        if iteration > 0 and len(synthetic_params) > 0:
-            # All parameter sets from previous iteration share the same metrics
+        # Stage 3: Step 1 - Report results from PREVIOUS iteration
+        if iteration > 0 and (iteration - 1) in self.pending_trials:
+            prev_trials = self.pending_trials[iteration - 1]
+
+            # All parameter sets from same iteration share the same metrics
             trial_values = [
                 metrics['mmd_rbf'],
                 metrics['wasserstein'],
                 metrics['mean_nn_distance']
             ]
 
-            # Note: In Stage 2, we're not properly tracking trials yet
-            # This will be fixed in Stage 3 with proper ask/tell pattern
-            print(f"  Iteration {iteration-1} results:")
+            print(f"  Reporting results for iteration {iteration-1}:")
             print(f"    mmd_rbf: {trial_values[0]:.4f}")
             print(f"    wasserstein: {trial_values[1]:.4f}")
             print(f"    mean_nn_distance: {trial_values[2]:.4f}")
+            print(f"    Completing {len(prev_trials)} trials from iteration {iteration-1}")
 
-        # Ask Optuna for next parameter sets
+            # Tell Optuna about each trial's results
+            for trial in prev_trials:
+                self.study.tell(trial, trial_values)
+
+            # Clean up completed trials
+            del self.pending_trials[iteration - 1]
+
+        # Stage 3: Step 2 - Ask for next batch of parameter sets
         n_sets = config.get('iteration_batch_size', 8)
         next_params = []
+        trials = []
 
         print(f"\n  Suggesting {n_sets} parameter sets for iteration {iteration}...")
 
@@ -219,16 +231,11 @@ class OptunaOptimizer:
             trial = self.study.ask()
             params = self._define_search_space(trial)
             next_params.append(params)
+            trials.append(trial)
 
-            # For Stage 2, we immediately tell with 3 objective values
-            # This will be properly fixed in Stage 3 with proper ask/tell pattern
-            if iteration > 0:
-                trial_values = [
-                    metrics.get('mmd_rbf', float('inf')),
-                    metrics.get('wasserstein', float('inf')),
-                    metrics.get('mean_nn_distance', float('inf'))
-                ]
-                self.study.tell(trial, trial_values)
+        # Stage 3: Step 3 - Store pending trials for this iteration
+        self.pending_trials[iteration] = trials
+        print(f"  Stored {len(trials)} pending trials for iteration {iteration}")
 
         # Simple convergence check: max iterations reached
         max_iterations = config.get('max_iterations', 10)

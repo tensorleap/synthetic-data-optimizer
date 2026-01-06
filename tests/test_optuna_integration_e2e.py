@@ -10,6 +10,7 @@ Tests the optimizer with actual:
 """
 
 import pytest
+import optuna
 import yaml
 import tempfile
 import shutil
@@ -440,3 +441,121 @@ class TestOptunaE2EIntegration:
         assert len(final_pareto) > 0
 
         print("[Full Test] ✓ Full mini experiment completed successfully!")
+
+    def test_ask_tell_pattern_e2e(self, mini_config, temp_test_dir):
+        """
+        Test proper ask/tell pattern in end-to-end workflow (Stage 3).
+        Verifies that pending trials are properly tracked and completed.
+        """
+        import numpy as np
+
+        # Initialize components
+        experiment_dir = Path(mini_config['experiment_dir'])
+        experiment_dir.mkdir(parents=True, exist_ok=True)
+
+        optimizer = OptunaOptimizer(experiment_dir, mini_config)
+        sampler = ParameterSampler()
+        generator = VoidGenerator(Path(mini_config['base_image_dir']))
+        embedder = DinoV2Embedder(model_name=mini_config['dino_model'])
+
+        # Generate real distribution
+        print("\n[E2E Test] Generating real distribution...")
+        real_params = sampler.sample_parameter_sets('real', n_sets=2, seed=42)
+        real_images, _ = generator.generate_batch(real_params, replications=1, seed_offset=0)
+        real_embeddings_full = embedder.embed_batch(real_images)
+
+        pca = PCAProjector(n_components=mini_config['pca_embedding_dim'])
+        real_embeddings = pca.fit_transform(real_embeddings_full)
+
+        # Track pending trials state throughout experiment
+        pending_trials_history = []
+
+        # Run 3 iterations and verify ask/tell pattern
+        prev_embeddings = real_embeddings
+        prev_params = real_params
+        prev_metrics = compute_all_metrics(real_embeddings, real_embeddings)
+
+        for iteration in range(3):
+            print(f"\n[E2E Test] === Iteration {iteration} ===")
+
+            # Get next parameters (triggers ask/tell)
+            next_params, converged = optimizer.suggest_next_parameters(
+                synthetic_embeddings=prev_embeddings,
+                synthetic_params=prev_params,
+                real_embeddings=real_embeddings,
+                metrics=prev_metrics,
+                iteration=iteration,
+                config=mini_config
+            )
+
+            # Verify pending trials state
+            print(f"[E2E Test] Pending trials after iteration {iteration}: {list(optimizer.pending_trials.keys())}")
+            pending_trials_history.append({
+                'iteration': iteration,
+                'pending_iterations': list(optimizer.pending_trials.keys()),
+                'n_pending_trials': {k: len(v) for k, v in optimizer.pending_trials.items()}
+            })
+
+            # Verify current iteration has pending trials
+            assert iteration in optimizer.pending_trials, f"Iteration {iteration} should have pending trials"
+            assert len(optimizer.pending_trials[iteration]) == mini_config['iteration_batch_size']
+
+            # Verify previous iteration was completed (if exists)
+            if iteration > 0:
+                assert (iteration - 1) not in optimizer.pending_trials, \
+                    f"Iteration {iteration-1} should have been completed"
+
+            # Generate synthetic images with suggested parameters
+            print(f"[E2E Test] Generating {len(next_params)} synthetic samples...")
+            synthetic_images, _ = generator.generate_batch(
+                next_params,
+                replications=mini_config['replications_per_iteration'],
+                seed_offset=iteration * 1000
+            )
+
+            # Extract embeddings
+            synthetic_embeddings_full = embedder.embed_batch(synthetic_images)
+            synthetic_embeddings = pca.transform(synthetic_embeddings_full)
+
+            # Compute metrics for next iteration
+            metrics = compute_all_metrics(synthetic_embeddings, real_embeddings)
+
+            print(f"[E2E Test] Iteration {iteration} metrics:")
+            print(f"  mmd_rbf: {metrics['mmd_rbf']:.4f}")
+            print(f"  wasserstein: {metrics['wasserstein']:.4f}")
+            print(f"  mean_nn_distance: {metrics['mean_nn_distance']:.4f}")
+
+            # Update for next iteration
+            prev_embeddings = synthetic_embeddings
+            prev_params = next_params
+            prev_metrics = metrics
+
+        # Verify final state
+        print("\n[E2E Test] Verifying final state...")
+
+        # Only last iteration should have pending trials
+        assert len(optimizer.pending_trials) == 1, "Only last iteration should have pending trials"
+        assert 2 in optimizer.pending_trials, "Iteration 2 should have pending trials"
+
+        # Verify completed trials count
+        completed_trials = [t for t in optimizer.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        expected_completed = 2 * mini_config['iteration_batch_size']  # Iterations 0 and 1
+        assert len(completed_trials) == expected_completed, \
+            f"Expected {expected_completed} completed trials, got {len(completed_trials)}"
+
+        # Verify each completed trial has 3 objectives
+        for trial in completed_trials:
+            assert len(trial.values) == 3, "Each trial should have 3 objective values"
+            assert all(isinstance(v, (float, int)) for v in trial.values), "All values should be numeric"
+
+        # Verify Pareto front exists
+        pareto_front = optimizer.get_pareto_front()
+        assert len(pareto_front) > 0, "Pareto front should have solutions"
+
+        print(f"[E2E Test] Completed trials: {len(completed_trials)}")
+        print(f"[E2E Test] Pareto front size: {len(pareto_front)}")
+        print(f"[E2E Test] Pending trials state history:")
+        for state in pending_trials_history:
+            print(f"  Iteration {state['iteration']}: pending={state['pending_iterations']}, counts={state['n_pending_trials']}")
+
+        print("[E2E Test] ✓ Ask/tell pattern E2E test passed!")
