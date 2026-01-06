@@ -7,7 +7,7 @@ Includes MMD, Wasserstein distance, and per-sample distance metrics.
 import numpy as np
 from scipy.spatial.distance import cdist
 from scipy.stats import wasserstein_distance
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 
 class DistributionMetrics:
@@ -236,3 +236,61 @@ def compute_all_metrics(
     metrics.update(coverage_info)
 
     return metrics
+
+
+def compute_per_param_set_metrics(
+    synthetic_embeddings: np.ndarray,
+    synthetic_metadata: List[Dict],
+    real_embeddings: np.ndarray,
+    n_param_sets: int
+) -> List[Dict[str, float]]:
+    """
+    Compute metrics for each parameter set separately.
+
+    Each parameter set has multiple replications due to stochastic parameters.
+    This function groups synthetic samples by param_set_id and computes metrics
+    for each parameter set's distribution (averaged over its replications).
+
+    Args:
+        synthetic_embeddings: (N, D) embeddings of all synthetic samples
+        synthetic_metadata: List of metadata dicts with 'param_set_id' for each sample
+        real_embeddings: (M, D) embeddings of real samples
+        n_param_sets: Number of parameter sets
+
+    Returns:
+        List of metric dicts, one per parameter set
+    """
+    # Group embeddings by param_set_id
+    param_set_embeddings = {}
+
+    for i, metadata in enumerate(synthetic_metadata):
+        param_set_id = metadata['param_set_id']
+
+        if param_set_id not in param_set_embeddings:
+            param_set_embeddings[param_set_id] = []
+
+        param_set_embeddings[param_set_id].append(synthetic_embeddings[i])
+
+    # Verify we have the expected number of parameter sets
+    if len(param_set_embeddings) != n_param_sets:
+        raise ValueError(
+            f"Expected {n_param_sets} parameter sets, but found {len(param_set_embeddings)} "
+            f"in metadata. Param sets found: {sorted(param_set_embeddings.keys())}"
+        )
+
+    # Compute metrics for each parameter set
+    metrics_list = []
+
+    for param_set_id in sorted(param_set_embeddings.keys()):
+        # Get embeddings for this parameter set (all replications)
+        embeddings = np.array(param_set_embeddings[param_set_id])
+
+        # Compute metrics for this parameter set vs real distribution
+        metrics = compute_all_metrics(embeddings, real_embeddings)
+
+        # Add param_set_id for tracking
+        metrics['param_set_id'] = param_set_id
+
+        metrics_list.append(metrics)
+
+    return metrics_list
