@@ -50,6 +50,13 @@ def test_config():
 class TestOptunaOptimizer:
     """Test suite for OptunaOptimizer Stage 3: Proper ask/tell pattern"""
 
+    def _create_metrics_list(self, n_param_sets: int, base_metrics: dict) -> list:
+        """Helper to create metrics_list with param_set_id for each parameter set"""
+        return [
+            {**base_metrics, 'param_set_id': f'ps_{i:03d}'}
+            for i in range(n_param_sets)
+        ]
+
     def test_initialization(self, temp_experiment_dir, test_config):
         """Test optimizer initialization and SQLite creation"""
         optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
@@ -125,14 +132,18 @@ class TestOptunaOptimizer:
         synthetic_embeddings = np.random.randn(24, 400)
         synthetic_params = []
         real_embeddings = np.random.randn(15, 400)
-        metrics = {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        # Create metrics_list with one dict per parameter set
+        metrics_list = self._create_metrics_list(
+            test_config['iteration_batch_size'],
+            {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        )
 
         # Test iteration 1
         next_params, converged = optimizer.suggest_next_parameters(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
-            metrics,
+            metrics_list,
             iteration=1,
             config=test_config
         )
@@ -149,14 +160,17 @@ class TestOptunaOptimizer:
         synthetic_embeddings = np.random.randn(24, 400)
         synthetic_params = []
         real_embeddings = np.random.randn(15, 400)
-        metrics = {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        metrics_list = self._create_metrics_list(
+            test_config['iteration_batch_size'],
+            {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        )
 
         # Test at max_iterations
         next_params, converged = optimizer.suggest_next_parameters(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
-            metrics,
+            metrics_list,
             iteration=test_config['max_iterations'],
             config=test_config
         )
@@ -172,13 +186,16 @@ class TestOptunaOptimizer:
         synthetic_embeddings = np.random.randn(24, 400)
         synthetic_params = []
         real_embeddings = np.random.randn(15, 400)
-        metrics = {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        metrics_list = self._create_metrics_list(
+            test_config['iteration_batch_size'],
+            {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        )
 
         next_params1, _ = optimizer1.suggest_next_parameters(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
-            metrics,
+            metrics_list,
             iteration=1,
             config=test_config
         )
@@ -199,13 +216,16 @@ class TestOptunaOptimizer:
         synthetic_embeddings = np.random.randn(24, 400)
         synthetic_params = []
         real_embeddings = np.random.randn(15, 400)
-        metrics = {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        metrics_list = self._create_metrics_list(
+            test_config['iteration_batch_size'],
+            {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        )
 
         next_params, _ = optimizer.suggest_next_parameters(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
-            metrics,
+            metrics_list,
             iteration=1,
             config=test_config
         )
@@ -225,13 +245,13 @@ class TestOptunaOptimizer:
         synthetic_embeddings = np.random.randn(24, 400)
         synthetic_params = []
         real_embeddings = np.random.randn(15, 400)
-        metrics = {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        metrics_list = self._create_metrics_list(test_config['iteration_batch_size'], {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5})
 
         next_params1, _ = optimizer1.suggest_next_parameters(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
-            metrics,
+            metrics_list,
             iteration=1,
             config=test_config
         )
@@ -244,7 +264,7 @@ class TestOptunaOptimizer:
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
-            metrics,
+            metrics_list,
             iteration=1,
             config=test_config
         )
@@ -276,17 +296,17 @@ class TestOptunaOptimizer:
         # Run multiple iterations with different metrics to build Pareto front
         for i in range(1, 6):
             # Vary metrics to create trade-offs
-            metrics = {
+            metrics_list = self._create_metrics_list(test_config['iteration_batch_size'], {
                 'mmd_rbf': 0.10 + i * 0.01,
                 'wasserstein': 0.08 - i * 0.005,
                 'mean_nn_distance': 3.0 + i * 0.2
-            }
+            })
 
             next_params, _ = optimizer.suggest_next_parameters(
                 synthetic_embeddings,
                 synthetic_params,
                 real_embeddings,
-                metrics,
+                metrics_list,
                 iteration=i,
                 config=test_config
             )
@@ -314,17 +334,17 @@ class TestOptunaOptimizer:
 
         # Run iterations and track Pareto front size
         for i in range(1, 4):
-            metrics = {
+            metrics_list = self._create_metrics_list(test_config['iteration_batch_size'], {
                 'mmd_rbf': 0.15 - i * 0.02,
                 'wasserstein': 0.08 - i * 0.01,
                 'mean_nn_distance': 3.5 - i * 0.3
-            }
+            })
 
             optimizer.suggest_next_parameters(
                 synthetic_embeddings,
                 synthetic_params,
                 real_embeddings,
-                metrics,
+                metrics_list,
                 iteration=i,
                 config=test_config
             )
@@ -350,14 +370,14 @@ class TestOptunaOptimizer:
         synthetic_embeddings = np.random.randn(24, 400)
         synthetic_params = []
         real_embeddings = np.random.randn(15, 400)
-        metrics = {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        metrics_list = self._create_metrics_list(test_config['iteration_batch_size'], {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5})
 
         # Ask for parameters for iteration 0
         next_params, _ = optimizer.suggest_next_parameters(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
-            metrics,
+            metrics_list,
             iteration=0,
             config=test_config
         )
@@ -375,12 +395,15 @@ class TestOptunaOptimizer:
         real_embeddings = np.random.randn(15, 400)
 
         # Iteration 0: Ask for parameters
-        metrics_0 = {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        metrics_list_0 = self._create_metrics_list(
+            test_config['iteration_batch_size'],
+            {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        )
         next_params_0, _ = optimizer.suggest_next_parameters(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
-            metrics_0,
+            metrics_list_0,
             iteration=0,
             config=test_config
         )
@@ -390,12 +413,15 @@ class TestOptunaOptimizer:
         n_trials_iter0 = len(optimizer.pending_trials[0])
 
         # Iteration 1: Report results for iteration 0 and ask for new parameters
-        metrics_1 = {'mmd_rbf': 0.12, 'wasserstein': 0.07, 'mean_nn_distance': 3.2}
+        metrics_list_1 = self._create_metrics_list(
+            test_config['iteration_batch_size'],
+            {'mmd_rbf': 0.12, 'wasserstein': 0.07, 'mean_nn_distance': 3.2}
+        )
         next_params_1, _ = optimizer.suggest_next_parameters(
             synthetic_embeddings,
             next_params_0,
             real_embeddings,
-            metrics_1,
+            metrics_list_1,
             iteration=1,
             config=test_config
         )
@@ -423,18 +449,18 @@ class TestOptunaOptimizer:
         completed_trials_per_iteration = []
 
         for iteration in range(3):
-            metrics = {
+            metrics_list = self._create_metrics_list(test_config['iteration_batch_size'], {
                 'mmd_rbf': 0.15 - iteration * 0.02,
                 'wasserstein': 0.08 - iteration * 0.01,
                 'mean_nn_distance': 3.5 - iteration * 0.3
-            }
+            })
 
             # Ask for next parameters
             next_params, _ = optimizer.suggest_next_parameters(
                 synthetic_embeddings,
                 synthetic_params,
                 real_embeddings,
-                metrics,
+                metrics_list,
                 iteration=iteration,
                 config=test_config
             )
@@ -472,23 +498,30 @@ class TestOptunaOptimizer:
 
         # Iteration 0
         # Note: metrics parameter in iteration 0 doesn't matter (no previous iteration to report)
-        metrics_dummy = {'mmd_rbf': 0.99, 'wasserstein': 0.99, 'mean_nn_distance': 99.9}
+        metrics_list_dummy = self._create_metrics_list(
+            test_config['iteration_batch_size'],
+            {'mmd_rbf': 0.99, 'wasserstein': 0.99, 'mean_nn_distance': 99.9}
+        )
         next_params_0, _ = optimizer.suggest_next_parameters(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
-            metrics_dummy,
+            metrics_list_dummy,
             iteration=0,
             config=test_config
         )
 
         # Iteration 1: Pass metrics from iteration 0 - these will be used to complete iteration 0 trials
-        metrics_0 = {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        base_metrics_0 = {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
+        metrics_list_0 = self._create_metrics_list(
+            test_config['iteration_batch_size'],
+            base_metrics_0
+        )
         next_params_1, _ = optimizer.suggest_next_parameters(
             synthetic_embeddings,
             next_params_0,
             real_embeddings,
-            metrics_0,  # These are iteration 0's results
+            metrics_list_0,  # These are iteration 0's results
             iteration=1,
             config=test_config
         )
@@ -497,9 +530,9 @@ class TestOptunaOptimizer:
         completed_trials = [t for t in optimizer.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         for trial in completed_trials:
             assert len(trial.values) == 3
-            assert trial.values[0] == metrics_0['mmd_rbf']
-            assert trial.values[1] == metrics_0['wasserstein']
-            assert trial.values[2] == metrics_0['mean_nn_distance']
+            assert trial.values[0] == base_metrics_0['mmd_rbf']
+            assert trial.values[1] == base_metrics_0['wasserstein']
+            assert trial.values[2] == base_metrics_0['mean_nn_distance']
 
     def test_no_orphaned_trials(self, temp_experiment_dir, test_config):
         """Test that no trials are left in pending state (Stage 3)"""
@@ -511,17 +544,17 @@ class TestOptunaOptimizer:
 
         # Run 3 iterations
         for iteration in range(3):
-            metrics = {
+            metrics_list = self._create_metrics_list(test_config['iteration_batch_size'], {
                 'mmd_rbf': 0.15 - iteration * 0.02,
                 'wasserstein': 0.08 - iteration * 0.01,
                 'mean_nn_distance': 3.5 - iteration * 0.3
-            }
+            })
 
             next_params, _ = optimizer.suggest_next_parameters(
                 synthetic_embeddings,
                 synthetic_params,
                 real_embeddings,
-                metrics,
+                metrics_list,
                 iteration=iteration,
                 config=test_config
             )
