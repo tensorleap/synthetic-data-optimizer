@@ -46,6 +46,7 @@ def mini_config(temp_test_dir):
         'iteration_batch_size': 2,  # Small batch for speed
         'replications_per_iteration': 1,  # Single replication for speed
         'max_iterations': 3,
+        'optimization_metrics': ['mmd_rbf', 'mean_nn_distance'],  # Configurable metrics
         'param_bounds': {
             'void_shape': ['circle', 'ellipse', 'irregular'],
             'void_count': [1, 10],
@@ -201,9 +202,10 @@ class TestOptunaE2EIntegration:
         assert len(pareto_front) > 0, "Pareto front should have solutions"
         print(f"\n[Test] Final Pareto front size: {len(pareto_front)}")
 
-        # Verify each trial has 3 objectives
+        # Verify each trial has correct number of objectives from config
+        n_metrics = len(mini_config['optimization_metrics'])
         for trial in pareto_front:
-            assert len(trial.values) == 3, "Each trial should have 3 objective values"
+            assert len(trial.values) == n_metrics, f"Each trial should have {n_metrics} objective values"
 
         # Verify SQLite persistence
         assert optimizer.study_path.exists(), "SQLite study file should exist"
@@ -222,7 +224,7 @@ class TestOptunaE2EIntegration:
         sampler = ParameterSampler()
         generator = VoidGenerator(Path(mini_config['base_image_dir']))
         embedder = DinoV2Embedder(model_name=mini_config['dino_model'])
-        reporter = ExperimentReporter(experiment_dir)
+        reporter = ExperimentReporter(experiment_dir, config=mini_config)
 
         # Generate real distribution
         print("\n[Test] Generating real distribution...")
@@ -607,9 +609,10 @@ class TestOptunaE2EIntegration:
         assert len(completed_trials) == expected_completed, \
             f"Expected {expected_completed} completed trials, got {len(completed_trials)}"
 
-        # Verify each completed trial has 3 objectives
+        # Verify each completed trial has correct number of objectives from config
+        n_metrics = len(mini_config['optimization_metrics'])
         for trial in completed_trials:
-            assert len(trial.values) == 3, "Each trial should have 3 objective values"
+            assert len(trial.values) == n_metrics, f"Each trial should have {n_metrics} objective values"
             assert all(isinstance(v, (float, int)) for v in trial.values), "All values should be numeric"
 
         # Verify Pareto front exists

@@ -24,16 +24,24 @@ class ExperimentReporter:
     Saves outputs to experiment directory for analysis and debugging.
     """
 
-    def __init__(self, experiment_dir: Path):
+    def __init__(self, experiment_dir: Path, config: Dict = None):
         """
         Initialize reporter.
 
         Args:
             experiment_dir: Path to experiment directory for saving outputs
+            config: Optional experiment config dict (for optimization_metrics)
         """
         self.experiment_dir = Path(experiment_dir)
         self.viz_dir = self.experiment_dir / "visualizations"
         self.samples_dir = self.experiment_dir / "sample_images"
+
+        # Get optimization metrics from config
+        if config:
+            self.optimization_metrics = config.get('optimization_metrics', ['mmd_rbf', 'mean_nn_distance'])
+        else:
+            # Default fallback if no config provided
+            self.optimization_metrics = ['mmd_rbf', 'mean_nn_distance']
 
         # Create directories
         self.viz_dir.mkdir(parents=True, exist_ok=True)
@@ -120,15 +128,6 @@ class ExperimentReporter:
             label='Real', edgecolors='darkred', linewidth=0.5
         )
 
-        # Plot initial synthetic (iteration 0) if provided
-        if initial_embeddings is not None:
-            initial_2d = pca_2d.transform(initial_embeddings)
-            ax.scatter(
-                initial_2d[:, 0], initial_2d[:, 1],
-                c='lightgray', s=50, alpha=0.5,
-                label='Iteration 0 (Initial)', edgecolors='gray', linewidth=0.5
-            )
-
         # Plot synthetic from first and last iteration only
         iterations = sorted(synthetic_embeddings_by_iter.keys())
 
@@ -139,7 +138,7 @@ class ExperimentReporter:
             ax.scatter(
                 synthetic_first_2d[:, 0], synthetic_first_2d[:, 1],
                 c='orange', s=70, alpha=0.7,
-                label=f'Iteration {first_iter} (Initial)', edgecolors='black', linewidth=0.3
+                label=f'Iteration {first_iter}', edgecolors='black', linewidth=0.3
             )
 
             # Last iteration (if different from first)
@@ -149,7 +148,7 @@ class ExperimentReporter:
                 ax.scatter(
                     synthetic_last_2d[:, 0], synthetic_last_2d[:, 1],
                     c='green', s=70, alpha=0.7,
-                    label=f'Iteration {last_iter} (Final)', edgecolors='black', linewidth=0.3
+                    label=f'Iteration {last_iter}', edgecolors='black', linewidth=0.3
                 )
 
         ax.set_xlabel(f'PC1 ({pca_2d.explained_variance_ratio_[0]:.1%} variance)', fontsize=12)
@@ -241,37 +240,50 @@ class ExperimentReporter:
             print("  No Pareto front to plot")
             return
 
-        # Extract objective values
-        mmd_rbf = [trial.values[0] for trial in pareto_trials]
-        wasserstein = [trial.values[1] for trial in pareto_trials]
-        mean_nn_dist = [trial.values[2] for trial in pareto_trials]
+        # Get number of objectives from configured metrics
+        n_metrics = len(self.optimization_metrics)
 
-        # Create 2D projections
-        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        if n_metrics < 2:
+            print("  Need at least 2 objectives to plot Pareto front")
+            return
 
-        # MMD vs Wasserstein
-        axes[0].scatter(mmd_rbf, wasserstein, s=100, alpha=0.7, c=range(len(pareto_trials)),
-                       cmap='viridis', edgecolors='black', linewidth=0.5)
-        axes[0].set_xlabel('MMD RBF', fontsize=11)
-        axes[0].set_ylabel('Wasserstein Distance', fontsize=11)
-        axes[0].set_title('Pareto Front: MMD vs Wasserstein', fontsize=12)
-        axes[0].grid(True, alpha=0.3)
+        # Extract objective values dynamically
+        objective_values = {}
+        for i, metric_name in enumerate(self.optimization_metrics):
+            objective_values[metric_name] = [trial.values[i] for trial in pareto_trials]
 
-        # MMD vs NN Distance
-        axes[1].scatter(mmd_rbf, mean_nn_dist, s=100, alpha=0.7, c=range(len(pareto_trials)),
-                       cmap='viridis', edgecolors='black', linewidth=0.5)
-        axes[1].set_xlabel('MMD RBF', fontsize=11)
-        axes[1].set_ylabel('Mean NN Distance', fontsize=11)
-        axes[1].set_title('Pareto Front: MMD vs NN Distance', fontsize=12)
-        axes[1].grid(True, alpha=0.3)
+        # Create pairwise 2D projections
+        # Number of subplot pairs: n_metrics choose 2
+        n_plots = (n_metrics * (n_metrics - 1)) // 2
 
-        # Wasserstein vs NN Distance
-        axes[2].scatter(wasserstein, mean_nn_dist, s=100, alpha=0.7, c=range(len(pareto_trials)),
-                       cmap='viridis', edgecolors='black', linewidth=0.5)
-        axes[2].set_xlabel('Wasserstein Distance', fontsize=11)
-        axes[2].set_ylabel('Mean NN Distance', fontsize=11)
-        axes[2].set_title('Pareto Front: Wasserstein vs NN Distance', fontsize=12)
-        axes[2].grid(True, alpha=0.3)
+        if n_plots == 1:
+            fig, axes = plt.subplots(1, 1, figsize=(6, 5))
+            axes = [axes]
+        else:
+            fig, axes = plt.subplots(1, n_plots, figsize=(6 * n_plots, 5))
+            if n_plots == 1:
+                axes = [axes]
+
+        plot_idx = 0
+        metric_names = self.optimization_metrics
+
+        # Create all pairwise plots
+        for i in range(n_metrics):
+            for j in range(i + 1, n_metrics):
+                x_metric = metric_names[i]
+                y_metric = metric_names[j]
+
+                axes[plot_idx].scatter(
+                    objective_values[x_metric],
+                    objective_values[y_metric],
+                    s=100, alpha=0.7, c=range(len(pareto_trials)),
+                    cmap='viridis', edgecolors='black', linewidth=0.5
+                )
+                axes[plot_idx].set_xlabel(x_metric.replace('_', ' ').title(), fontsize=11)
+                axes[plot_idx].set_ylabel(y_metric.replace('_', ' ').title(), fontsize=11)
+                axes[plot_idx].set_title(f'Pareto Front: {x_metric} vs {y_metric}', fontsize=12)
+                axes[plot_idx].grid(True, alpha=0.3)
+                plot_idx += 1
 
         plt.tight_layout()
         save_path = self.viz_dir / "pareto_front_2d_projections.png"
@@ -305,7 +317,7 @@ class ExperimentReporter:
         report_lines.append("Metrics Evolution:")
         report_lines.append("-" * 60)
 
-        for metric in ['mmd_rbf', 'wasserstein', 'mean_nn_distance']:
+        for metric in self.optimization_metrics:
             if metric in initial and metric in final:
                 init_val = initial[metric]
                 final_val = final[metric]
@@ -330,7 +342,7 @@ class ExperimentReporter:
         report_lines.append("Best Values Achieved:")
         report_lines.append("-" * 60)
 
-        for metric in ['mmd_rbf', 'wasserstein', 'mean_nn_distance']:
+        for metric in self.optimization_metrics:
             values = [m.get(metric, np.inf) for m in self.metrics_history]
             best_val = min(values)
             best_iter = values.index(best_val)

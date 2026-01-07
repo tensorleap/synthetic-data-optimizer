@@ -11,28 +11,28 @@ pca_embedding_dim: 400             # reduce to 400-dim for optimization
 pca_visualization_dim: 2           # further reduce to 2D for visualization
 
 # Random seed (one seed to rule them all)
-random_seed: 1
+random_seed: 42
 
 # Dataset sizes
 real:
-  param_sets: 100
-  replications: 3
+  param_sets: 10
+  replications: 5
 
 close:
-  param_sets: 200
-  replications: 3
+  param_sets: 10
+  replications: 50
 
 far:
-  param_sets: 200
-  replications: 3
+  param_sets: 10
+  replications: 50
 
 # Iteration settings
-iteration_batch_size: 200      # param sets per iteration
-replications_per_iteration: 3
+iteration_batch_size: 10      # param sets per iteration
+replications_per_iteration: 20
 max_iterations: 10
 
 # Initial condition for optimization (iteration 0)
-initial_condition: 'close'  # 'close' or 'far' - determines starting synthetic distribution
+initial_condition: 'far'  # 'close' or 'far' - determines starting synthetic distribution
 
 # Parameter space (search bounds)
 param_bounds:
@@ -65,7 +65,7 @@ param_distributions:
         ellipse: 0.5
         irregular: 0.3
     void_count:
-      mean: 8
+      mean: 4
       std: 3
     base_size:
       mean: 20
@@ -111,27 +111,34 @@ param_distributions:
   far:
     void_shape:
       probabilities:
-        circle: 0.8
+        circle: 0.1
         ellipse: 0.1
-        irregular: 0.1
+        irregular: 0.8
     void_count:
       mean: 20
       std: 3
     base_size:
-      mean: 8
-      std: 3
+      mean: 6
+      std: 1
     rotation:
-      mean: 180
-      std: 90
+      mean: 45
+      std: 20
     center_x:
-      mean: 0.5
+      mean: 0.7
       std: 0.15
     center_y:
-      mean: 0.5
+      mean: 0.1
       std: 0.15
     position_spread:
       mean: 0.95
       std: 0.05
+
+# Optimization metrics
+# List of metrics to optimize (order matters - first metric is primary)
+# Available metrics: mmd_rbf, mmd_linear, wasserstein, mean_nn_distance, median_nn_distance
+optimization_metrics:
+  - mmd_rbf
+  - mean_nn_distance
 
 # Convergence criteria
 convergence_threshold: 0.05  # distribution similarity metric

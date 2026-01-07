@@ -28,6 +28,7 @@ def test_config():
         'random_seed': 42,
         'iteration_batch_size': 4,
         'max_iterations': 5,
+        'optimization_metrics': ['mmd_rbf', 'mean_nn_distance'],  # Configurable metrics
         'param_bounds': {
             'void_shape': ['circle', 'ellipse', 'irregular'],
             'void_count': [1, 10],
@@ -68,7 +69,9 @@ class TestOptunaOptimizer:
         # Check study configuration
         assert optimizer.study is not None
         assert optimizer.study.study_name == 'test_optuna'
-        assert len(optimizer.study.directions) == 3  # Multi-objective (Stage 2)
+        # Number of objectives should match config
+        n_metrics = len(test_config['optimization_metrics'])
+        assert len(optimizer.study.directions) == n_metrics
 
     def test_search_space_valid_parameters(self, temp_experiment_dir, test_config):
         """Test that _define_search_space produces valid parameters within bounds"""
@@ -281,8 +284,9 @@ class TestOptunaOptimizer:
         """Test that optimizer handles 3 objectives correctly (Stage 2)"""
         optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
 
-        # Verify study has 3 objectives
-        assert len(optimizer.study.directions) == 3
+        # Verify study has correct number of objectives from config
+        n_metrics = len(test_config['optimization_metrics'])
+        assert len(optimizer.study.directions) == n_metrics
         assert all(d == optuna.study.StudyDirection.MINIMIZE for d in optimizer.study.directions)
 
     def test_get_pareto_front(self, temp_experiment_dir, test_config):
@@ -318,9 +322,10 @@ class TestOptunaOptimizer:
         assert len(pareto_front) > 0
         assert all(isinstance(trial, optuna.trial.FrozenTrial) for trial in pareto_front)
 
-        # Each trial should have 3 objective values
+        # Each trial should have correct number of objective values from config
+        n_metrics = len(test_config['optimization_metrics'])
         for trial in pareto_front:
-            assert len(trial.values) == 3
+            assert len(trial.values) == n_metrics
 
     def test_pareto_front_growth(self, temp_experiment_dir, test_config):
         """Test that Pareto front can grow over iterations"""
@@ -528,11 +533,12 @@ class TestOptunaOptimizer:
 
         # Verify completed trials (iteration 0) have correct metric values
         completed_trials = [t for t in optimizer.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        n_metrics = len(test_config['optimization_metrics'])
         for trial in completed_trials:
-            assert len(trial.values) == 3
-            assert trial.values[0] == base_metrics_0['mmd_rbf']
-            assert trial.values[1] == base_metrics_0['wasserstein']
-            assert trial.values[2] == base_metrics_0['mean_nn_distance']
+            assert len(trial.values) == n_metrics
+            # Check each configured metric value
+            for i, metric_name in enumerate(test_config['optimization_metrics']):
+                assert trial.values[i] == base_metrics_0[metric_name]
 
     def test_no_orphaned_trials(self, temp_experiment_dir, test_config):
         """Test that no trials are left in pending state (Stage 3)"""

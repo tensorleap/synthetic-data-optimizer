@@ -50,7 +50,7 @@ class ExperimentRunner:
         )
 
         # Experiment reporter for visualizations
-        self.reporter = ExperimentReporter(Path(self.config['experiment_dir']))
+        self.reporter = ExperimentReporter(Path(self.config['experiment_dir']), config=self.config)
 
         # Store real embeddings (fixed reference)
         self.real_embeddings_768d = None
@@ -148,6 +148,14 @@ class ExperimentRunner:
             real_embeddings_400d,
             n_param_sets=n_param_sets
         )
+
+        # Print individual parameter set metrics
+        print(f"\n  Individual parameter set metrics:")
+        for metrics in metrics_list:
+            param_set_id = metrics['param_set_id']
+            print(f"    Param set {param_set_id}: mmd_rbf={metrics['mmd_rbf']:.4f}, "
+                  f"wasserstein={metrics['wasserstein']:.4f}, "
+                  f"mean_nn_distance={metrics['mean_nn_distance']:.4f}")
 
         # Compute average metrics for display
         avg_metrics = {
