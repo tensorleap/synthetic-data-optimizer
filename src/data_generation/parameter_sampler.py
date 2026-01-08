@@ -28,7 +28,7 @@ class ParameterSampler:
             config = yaml.safe_load(f)
 
         self.distributions = config['param_distributions']
-        self.param_bounds = config['param_bounds']
+        self.distribution_param_bounds = config['distribution_param_bounds']
         self.param_precision = config.get('param_precision', {})
 
     def sample_parameter_sets(
@@ -122,24 +122,24 @@ class ParameterSampler:
         return np.random.choice(categories, p=probs)
 
     def _sample_integer(self, spec: Dict, param_name: str) -> int:
-        """Sample integer from normal distribution, clipped to global param_bounds"""
+        """Sample integer from normal distribution, clipped to distribution bounds"""
         value = np.random.normal(spec['mean'], spec['std'])
 
-        # Apply global bounds from param_bounds
-        bounds = self.param_bounds[param_name]
-        value = max(value, bounds[0])
-        value = min(value, bounds[1])
+        # Apply bounds from distribution_param_bounds (using mean bounds as parameter range)
+        mean_bounds = self.distribution_param_bounds[param_name]['mean']
+        value = max(value, mean_bounds[0])
+        value = min(value, mean_bounds[1])
 
         return int(round(value))
 
     def _sample_continuous(self, spec: Dict, param_name: str) -> float:
-        """Sample continuous value from normal distribution, clipped to global param_bounds"""
+        """Sample continuous value from normal distribution, clipped to distribution bounds"""
         value = np.random.normal(spec['mean'], spec['std'])
 
-        # Apply global bounds from param_bounds
-        bounds = self.param_bounds[param_name]
-        value = max(value, bounds[0])
-        value = min(value, bounds[1])
+        # Apply bounds from distribution_param_bounds (using mean bounds as parameter range)
+        mean_bounds = self.distribution_param_bounds[param_name]['mean']
+        value = max(value, mean_bounds[0])
+        value = min(value, mean_bounds[1])
 
         # Apply precision rounding if specified
         if param_name in self.param_precision:

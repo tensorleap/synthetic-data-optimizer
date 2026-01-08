@@ -22,57 +22,49 @@ def temp_experiment_dir():
 
 @pytest.fixture
 def test_config():
-    """Sample configuration for testing"""
+    """Sample configuration for testing with flat bounds structure (matching CSV inference)"""
     return {
         'experiment_name': 'test_optuna',
         'random_seed': 42,
         'iteration_batch_size': 4,
         'max_iterations': 5,
-        'optimization_metrics': ['mmd_rbf', 'mean_nn_distance'],  # Configurable metrics
-        'param_bounds': {
-            'void_shape': ['circle', 'ellipse', 'irregular'],
-            'void_count': [1, 10],
-            'base_size': [5.0, 15.0],
-            'rotation': [0.0, 360.0],
-            'center_x': [0.2, 0.8],
-            'center_y': [0.2, 0.8],
-            'position_spread': [0.1, 0.8]
-        },
+        'optimization_metrics': ['mmd_rbf', 'mean_nn_distance'],
         'param_precision': {
-            'base_size': 1,
-            'rotation': 1,
-            'center_x': 2,
-            'center_y': 2,
-            'position_spread': 2
+            'void_shape_circle': 2,
+            'void_shape_ellipse': 2,
+            'void_shape_irregular': 2,
+            'void_count_mean': 1,
+            'void_count_std': 1,
+            'base_size_mean': 1,
+            'base_size_std': 1,
+            'rotation_mean': 1,
+            'rotation_std': 1,
+            'center_x_mean': 2,
+            'center_x_std': 2,
+            'center_y_mean': 2,
+            'center_y_std': 2,
+            'position_spread_mean': 2,
+            'position_spread_std': 2
         },
+        # New flat structure matching CSV bounds inference
         'distribution_param_bounds': {
-            'void_shape': {
-                'logit_range': [-3.0, 3.0]
-            },
-            'void_count': {
-                'mean': [1, 10],
-                'std': [0.5, 5.0]
-            },
-            'base_size': {
-                'mean': [5.0, 15.0],
-                'std': [0.5, 5.0]
-            },
-            'rotation': {
-                'mean': [0.0, 360.0],
-                'std': [10.0, 180.0]
-            },
-            'center_x': {
-                'mean': [0.2, 0.8],
-                'std': [0.05, 0.3]
-            },
-            'center_y': {
-                'mean': [0.2, 0.8],
-                'std': [0.05, 0.3]
-            },
-            'position_spread': {
-                'mean': [0.1, 0.8],
-                'std': [0.05, 0.3]
-            }
+            # Categorical parameters - probabilities for void_shape categories
+            'void_shape_circle': [0.1, 0.5],
+            'void_shape_ellipse': [0.2, 0.6],
+            'void_shape_irregular': [0.1, 0.5],
+            # Distribution parameters (numerical bounds)
+            'void_count_mean': [1, 10],
+            'void_count_std': [0.5, 5.0],
+            'base_size_mean': [5.0, 15.0],
+            'base_size_std': [0.5, 5.0],
+            'rotation_mean': [0.0, 360.0],
+            'rotation_std': [10.0, 180.0],
+            'center_x_mean': [0.2, 0.8],
+            'center_x_std': [0.05, 0.3],
+            'center_y_mean': [0.2, 0.8],
+            'center_y_std': [0.05, 0.3],
+            'position_spread_mean': [0.1, 0.8],
+            'position_spread_std': [0.05, 0.3]
         }
     }
 
@@ -103,54 +95,51 @@ class TestOptunaOptimizer:
         assert len(optimizer.study.directions) == n_metrics
 
     def test_search_space_valid_distributions(self, temp_experiment_dir, test_config):
-        """Test that _define_search_space produces valid distribution specs within bounds"""
+        """Test that _define_search_space produces valid parameter suggestions within bounds"""
         optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
 
-        # Generate multiple distribution specs
-        dist_specs = []
+        # Generate multiple parameter suggestions
+        param_suggestions = []
         for _ in range(10):
             trial = optimizer.study.ask()
-            dist_spec = optimizer._define_search_space(trial)
-            dist_specs.append(dist_spec)
+            params = optimizer._define_search_space(trial)
+            param_suggestions.append(params)
 
-        # Verify all distribution specs are valid
+        # Verify all parameter suggestions are valid
         dist_bounds = test_config['distribution_param_bounds']
-        for dist_spec in dist_specs:
-            # Check void_shape probabilities sum to 1
-            probs = dist_spec['void_shape']['probabilities']
-            assert abs(sum(probs.values()) - 1.0) < 1e-6
-            assert all(0 <= p <= 1 for p in probs.values())
+        for params in param_suggestions:
+            # Check all parameters are within their bounds
+            for param_name, value in params.items():
+                assert param_name in dist_bounds, f"Parameter {param_name} not in bounds"
+                bounds = dist_bounds[param_name]
 
-            # Check void_count has mean and std within bounds
-            assert dist_bounds['void_count']['mean'][0] <= dist_spec['void_count']['mean'] <= dist_bounds['void_count']['mean'][1]
-            assert dist_bounds['void_count']['std'][0] <= dist_spec['void_count']['std'] <= dist_bounds['void_count']['std'][1]
-
-            # Check continuous parameters have mean and std within bounds
-            for param_name in ['base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
-                assert dist_bounds[param_name]['mean'][0] <= dist_spec[param_name]['mean'] <= dist_bounds[param_name]['mean'][1]
-                assert dist_bounds[param_name]['std'][0] <= dist_spec[param_name]['std'] <= dist_bounds[param_name]['std'][1]
+                # Numerical parameter
+                if isinstance(bounds, list) and len(bounds) == 2:
+                    assert bounds[0] <= value <= bounds[1], \
+                        f"Parameter {param_name}={value} out of bounds {bounds}"
 
     def test_distribution_structure(self, temp_experiment_dir, test_config):
-        """Test that distribution specs have correct structure"""
+        """Test that parameter suggestions have flat structure matching CSV format"""
         optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
 
-        # Generate distribution specs
-        dist_specs = []
+        # Generate parameter suggestions
+        param_suggestions = []
         for _ in range(10):
             trial = optimizer.study.ask()
-            dist_spec = optimizer._define_search_space(trial)
-            dist_specs.append(dist_spec)
+            params = optimizer._define_search_space(trial)
+            param_suggestions.append(params)
 
-        for dist_spec in dist_specs:
-            # Check void_shape has probabilities dict
-            assert 'probabilities' in dist_spec['void_shape']
-            assert set(dist_spec['void_shape']['probabilities'].keys()) == {'circle', 'ellipse', 'irregular'}
+        for params in param_suggestions:
+            # Check all params from config are present
+            expected_params = set(test_config['distribution_param_bounds'].keys())
+            actual_params = set(params.keys())
+            assert expected_params == actual_params, \
+                f"Mismatch: expected {expected_params}, got {actual_params}"
 
-            # Check all numeric params have mean and std
-            for param_name in ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
-                assert 'mean' in dist_spec[param_name]
-                assert 'std' in dist_spec[param_name]
-                assert dist_spec[param_name]['std'] > 0  # Std must be positive
+            # Check all values are numeric (no nested dicts)
+            for param_name, value in params.items():
+                assert isinstance(value, (int, float, str)), \
+                    f"Parameter {param_name} has non-flat value: {value}"
 
     def test_suggest_next_parameters_batch_size(self, temp_experiment_dir, test_config):
         """Test that suggest_next_parameters returns correct batch size"""
@@ -258,18 +247,17 @@ class TestOptunaOptimizer:
             config=test_config
         )
 
-        # Check each distribution spec has all required keys
-        required_keys = {'void_shape', 'void_count', 'base_size', 'rotation',
-                        'center_x', 'center_y', 'position_spread'}
+        # Check each distribution has all required flat parameters
+        expected_params = set(test_config['distribution_param_bounds'].keys())
 
-        for dist_spec in next_distributions:
-            assert set(dist_spec.keys()) == required_keys
-            # void_shape should have probabilities
-            assert 'probabilities' in dist_spec['void_shape']
-            # Others should have mean and std
-            for key in required_keys - {'void_shape'}:
-                assert 'mean' in dist_spec[key]
-                assert 'std' in dist_spec[key]
+        for params in next_distributions:
+            assert set(params.keys()) == expected_params, \
+                f"Expected {expected_params}, got {set(params.keys())}"
+
+            # All values should be numeric (flat structure)
+            for param_name, value in params.items():
+                assert isinstance(value, (int, float)), \
+                    f"Parameter {param_name} should be numeric, got {type(value)}"
 
     def test_reproducibility_with_seed(self, temp_experiment_dir, test_config):
         """Test that same seed produces same distribution suggestions"""
@@ -303,10 +291,10 @@ class TestOptunaOptimizer:
             config=test_config
         )
 
-        # Should produce same distributions (TPE is deterministic with seed)
-        # Check first distribution's void_count mean and probabilities
-        assert next_dists1[0]['void_count']['mean'] == next_dists2[0]['void_count']['mean']
-        assert next_dists1[0]['void_shape']['probabilities'] == next_dists2[0]['void_shape']['probabilities']
+        # Should produce same parameter suggestions (TPE is deterministic with seed)
+        # Check first parameter set matches
+        assert next_dists1[0] == next_dists2[0], \
+            "Same seed should produce same parameter suggestions"
 
         # Cleanup
         shutil.rmtree(temp_dir2)

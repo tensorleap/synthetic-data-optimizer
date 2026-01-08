@@ -34,16 +34,6 @@ max_iterations: 10
 # Initial condition for optimization (iteration 0)
 initial_condition: 'far'  # 'close' or 'far' - determines starting synthetic distribution
 
-# Parameter space (search bounds)
-param_bounds:
-  void_shape: ['circle', 'ellipse', 'irregular']
-  void_count: [1, 10]
-  base_size: [5.0, 15.0]
-  rotation: [0.0, 360.0]
-  center_x: [0.2, 0.8]  # fraction of image width
-  center_y: [0.2, 0.8]  # fraction of image height
-  position_spread: [0.1, 0.8]
-
 # Parameter precision (decimal places for rounding)
 # Controls granularity of parameter space for optimization
 # precision=1 means round to 1 decimal place (step size 0.1)
@@ -81,7 +71,7 @@ distribution_param_bounds:
     std: [0.05, 0.3]   # Spread variation
 
 # Parameter distributions (initial guesses, tune empirically)
-# Note: Sampling will clip to param_bounds defined above
+# Note: Sampling will clip to distribution_param_bounds defined above
 param_distributions:
   real:
     void_shape:

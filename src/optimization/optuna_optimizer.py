@@ -5,7 +5,8 @@ Optuna-based Bayesian optimizer for synthetic data parameter optimization.
 import optuna
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
+from ..utils.bounds_inference import infer_bounds_from_csv
 
 
 class OptunaOptimizer:
@@ -22,17 +23,31 @@ class OptunaOptimizer:
     - Simple convergence based on max_iterations
     """
 
-    def __init__(self, experiment_dir: Path, config: Dict):
+    def __init__(self, experiment_dir: Path, config: Dict, bounds_csv_path: Union[str, Path, None] = None):
         """
         Initialize Optuna optimizer.
 
         Args:
             experiment_dir: Path to experiment directory for SQLite storage
-            config: Experiment configuration dict with param_bounds, param_precision, optimization_metrics, etc.
+            config: Experiment configuration dict with optimization_metrics, etc.
+            bounds_csv_path: Optional path to CSV for inferring parameter bounds.
+                           If provided, overrides config['distribution_param_bounds']
         """
         self.experiment_dir = Path(experiment_dir)
         self.config = config
         self.study_path = self.experiment_dir / "optuna_study.db"
+
+        # Infer bounds from CSV if provided
+        if bounds_csv_path is not None:
+            print(f"Inferring parameter bounds from CSV: {bounds_csv_path}")
+            self.param_bounds = infer_bounds_from_csv(bounds_csv_path)
+            print(f"  Inferred bounds for {len(self.param_bounds)} parameters")
+        else:
+            # Use bounds from config (legacy support)
+            self.param_bounds = config.get('distribution_param_bounds', {})
+
+        if not self.param_bounds:
+            raise ValueError("No parameter bounds available. Provide bounds_csv_path or config['distribution_param_bounds']")
 
         # Get optimization metrics from config
         self.optimization_metrics = config.get('optimization_metrics', ['mmd_rbf', 'mean_nn_distance'])
@@ -72,58 +87,67 @@ class OptunaOptimizer:
         print(f"  Objectives: {n_objectives} ({', '.join(self.optimization_metrics)})")
         print(f"  TPE startup trials: {n_startup_trials}")
         print(f"  TPE multivariate: {multivariate}")
+        print(f"  Parameters: {', '.join(self.param_bounds.keys())}")
 
     def _define_search_space(self, trial: optuna.Trial) -> Dict:
         """
-        Define distribution parameter search space.
+        Define search space generically based on inferred parameter bounds.
+
+        The bounds come from CSV columns which are the actual optimization parameters.
+        No assumptions about parameter names or meanings.
 
         Args:
             trial: Optuna trial object
 
         Returns:
-            Dictionary containing distribution specifications (not concrete parameters)
+            Dictionary of suggested parameter values
         """
-        dist_bounds = self.config.get('distribution_param_bounds', {})
+        suggested_params = {}
 
-        if not dist_bounds:
-            raise ValueError("Missing 'distribution_param_bounds' in config")
+        for param_name, bounds in self.param_bounds.items():
+            # Check if nested parameter (dict) or flat parameter (list)
+            if isinstance(bounds, dict):
+                # Nested/conditional parameters not yet implemented
+                raise NotImplementedError(
+                    f"Conditional parameter '{param_name}' detected. "
+                    "Conditional parameters are not yet supported."
+                )
+            else:
+                # Flat parameter - suggest directly
+                suggested_params[param_name] = self._suggest_single_param(trial, param_name, bounds)
 
-        dist_spec = {}
+        return suggested_params
 
-        # Categorical parameter: void_shape (using softmax for probabilities)
-        logit_range = dist_bounds['void_shape']['logit_range']
-        logit_circle = trial.suggest_float('void_shape_logit_circle', logit_range[0], logit_range[1])
-        logit_ellipse = trial.suggest_float('void_shape_logit_ellipse', logit_range[0], logit_range[1])
-        logit_irregular = trial.suggest_float('void_shape_logit_irregular', logit_range[0], logit_range[1])
+    def _suggest_single_param(self, trial: optuna.Trial, param_name: str, bounds):
+        """
+        Suggest a single parameter value based on its bounds.
 
-        # Apply softmax to convert logits to probabilities
-        logits = np.array([logit_circle, logit_ellipse, logit_irregular])
-        probs = np.exp(logits) / np.exp(logits).sum()
+        Args:
+            trial: Optuna trial object
+            param_name: Name of the parameter
+            bounds: Either [min, max] for numerical or list of categories for categorical
 
-        dist_spec['void_shape'] = {
-            'probabilities': {
-                'circle': float(probs[0]),
-                'ellipse': float(probs[1]),
-                'irregular': float(probs[2])
-            }
-        }
+        Returns:
+            Suggested parameter value
+        """
+        if isinstance(bounds, list):
+            # Check if numerical (2-element list with numbers) or categorical (list of strings/values)
+            if len(bounds) == 2 and all(isinstance(b, (int, float)) for b in bounds):
+                # Numerical parameter: [min, max]
+                min_val, max_val = bounds[0], bounds[1]
 
-        # Integer parameter: void_count (mean and std)
-        void_count_bounds = dist_bounds['void_count']
-        dist_spec['void_count'] = {
-            'mean': trial.suggest_int('void_count_mean', void_count_bounds['mean'][0], void_count_bounds['mean'][1]),
-            'std': trial.suggest_float('void_count_std', void_count_bounds['std'][0], void_count_bounds['std'][1])
-        }
+                # Check if integer type
+                is_int = all(isinstance(b, int) or (isinstance(b, float) and b.is_integer()) for b in bounds)
 
-        # Continuous parameters: mean and std for each
-        for param_name in ['base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
-            param_bounds = dist_bounds[param_name]
-            dist_spec[param_name] = {
-                'mean': trial.suggest_float(f'{param_name}_mean', param_bounds['mean'][0], param_bounds['mean'][1]),
-                'std': trial.suggest_float(f'{param_name}_std', param_bounds['std'][0], param_bounds['std'][1])
-            }
+                if is_int:
+                    return trial.suggest_int(param_name, int(min_val), int(max_val))
+                else:
+                    return trial.suggest_float(param_name, min_val, max_val)
+            else:
+                # Categorical parameter: list of categories
+                return trial.suggest_categorical(param_name, bounds)
 
-        return dist_spec
+        raise ValueError(f"Invalid bounds format for parameter '{param_name}': {bounds}")
 
     def get_pareto_front(self) -> List[optuna.trial.FrozenTrial]:
         """
