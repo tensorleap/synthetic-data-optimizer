@@ -47,15 +47,6 @@ def mini_config(temp_test_dir):
         'replications_per_iteration': 1,  # Single replication for speed
         'max_iterations': 3,
         'optimization_metrics': ['mmd_rbf', 'mean_nn_distance'],  # Configurable metrics
-        'param_bounds': {
-            'void_shape': ['circle', 'ellipse', 'irregular'],
-            'void_count': [1, 10],
-            'base_size': [5.0, 15.0],
-            'rotation': [0.0, 360.0],
-            'center_x': [0.2, 0.8],
-            'center_y': [0.2, 0.8],
-            'position_spread': [0.1, 0.8]
-        },
         'param_precision': {
             'base_size': 1,
             'rotation': 1,
