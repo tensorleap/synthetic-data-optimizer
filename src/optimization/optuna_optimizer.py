@@ -75,94 +75,55 @@ class OptunaOptimizer:
 
     def _define_search_space(self, trial: optuna.Trial) -> Dict:
         """
-        Define parameter search space with bounds and precision.
+        Define distribution parameter search space.
 
         Args:
             trial: Optuna trial object
 
         Returns:
-            Dictionary of parameters sampled from the search space
+            Dictionary containing distribution specifications (not concrete parameters)
         """
-        bounds = self.config['param_bounds']
-        precision = self.config.get('param_precision', {})
+        dist_bounds = self.config.get('distribution_param_bounds', {})
 
-        params = {}
+        if not dist_bounds:
+            raise ValueError("Missing 'distribution_param_bounds' in config")
 
-        # Categorical parameter: void_shape
-        params['void_shape'] = trial.suggest_categorical(
-            'void_shape',
-            bounds['void_shape']
-        )
+        dist_spec = {}
 
-        # Integer parameter: void_count
-        params['void_count'] = trial.suggest_int(
-            'void_count',
-            bounds['void_count'][0],
-            bounds['void_count'][1]
-        )
+        # Categorical parameter: void_shape (using softmax for probabilities)
+        logit_range = dist_bounds['void_shape']['logit_range']
+        logit_circle = trial.suggest_float('void_shape_logit_circle', logit_range[0], logit_range[1])
+        logit_ellipse = trial.suggest_float('void_shape_logit_ellipse', logit_range[0], logit_range[1])
+        logit_irregular = trial.suggest_float('void_shape_logit_irregular', logit_range[0], logit_range[1])
 
-        # Continuous parameters with precision
-        # base_size: precision 1 decimal (step 0.1)
-        if 'base_size' in precision:
-            step = 10 ** (-precision['base_size'])
-        else:
-            step = 0.1
-        params['base_size'] = trial.suggest_float(
-            'base_size',
-            bounds['base_size'][0],
-            bounds['base_size'][1],
-            step=step
-        )
+        # Apply softmax to convert logits to probabilities
+        logits = np.array([logit_circle, logit_ellipse, logit_irregular])
+        probs = np.exp(logits) / np.exp(logits).sum()
 
-        # rotation: precision 1 decimal (step 0.1)
-        if 'rotation' in precision:
-            step = 10 ** (-precision['rotation'])
-        else:
-            step = 0.1
-        params['rotation'] = trial.suggest_float(
-            'rotation',
-            bounds['rotation'][0],
-            bounds['rotation'][1],
-            step=step
-        )
+        dist_spec['void_shape'] = {
+            'probabilities': {
+                'circle': float(probs[0]),
+                'ellipse': float(probs[1]),
+                'irregular': float(probs[2])
+            }
+        }
 
-        # center_x: precision 2 decimals (step 0.01)
-        if 'center_x' in precision:
-            step = 10 ** (-precision['center_x'])
-        else:
-            step = 0.01
-        params['center_x'] = trial.suggest_float(
-            'center_x',
-            bounds['center_x'][0],
-            bounds['center_x'][1],
-            step=step
-        )
+        # Integer parameter: void_count (mean and std)
+        void_count_bounds = dist_bounds['void_count']
+        dist_spec['void_count'] = {
+            'mean': trial.suggest_int('void_count_mean', void_count_bounds['mean'][0], void_count_bounds['mean'][1]),
+            'std': trial.suggest_float('void_count_std', void_count_bounds['std'][0], void_count_bounds['std'][1])
+        }
 
-        # center_y: precision 2 decimals (step 0.01)
-        if 'center_y' in precision:
-            step = 10 ** (-precision['center_y'])
-        else:
-            step = 0.01
-        params['center_y'] = trial.suggest_float(
-            'center_y',
-            bounds['center_y'][0],
-            bounds['center_y'][1],
-            step=step
-        )
+        # Continuous parameters: mean and std for each
+        for param_name in ['base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
+            param_bounds = dist_bounds[param_name]
+            dist_spec[param_name] = {
+                'mean': trial.suggest_float(f'{param_name}_mean', param_bounds['mean'][0], param_bounds['mean'][1]),
+                'std': trial.suggest_float(f'{param_name}_std', param_bounds['std'][0], param_bounds['std'][1])
+            }
 
-        # position_spread: precision 2 decimals (step 0.01)
-        if 'position_spread' in precision:
-            step = 10 ** (-precision['position_spread'])
-        else:
-            step = 0.01
-        params['position_spread'] = trial.suggest_float(
-            'position_spread',
-            bounds['position_spread'][0],
-            bounds['position_spread'][1],
-            step=step
-        )
-
-        return params
+        return dist_spec
 
     def get_pareto_front(self) -> List[optuna.trial.FrozenTrial]:
         """
@@ -173,7 +134,7 @@ class OptunaOptimizer:
         """
         return self.study.best_trials
 
-    def suggest_next_parameters(
+    def suggest_next_distributions(
         self,
         synthetic_embeddings: np.ndarray,
         synthetic_params: List[Dict],
@@ -183,25 +144,25 @@ class OptunaOptimizer:
         config: Dict
     ) -> Tuple[List[Dict], bool]:
         """
-        Suggest next parameter sets for synthetic data generation.
+        Suggest next distribution specifications for synthetic data generation.
 
         Args:
             synthetic_embeddings: (N, 400) embeddings of current synthetic samples
             synthetic_params: List of parameter dicts used to generate synthetic_embeddings
             real_embeddings: (M, 400) embeddings of real samples (fixed reference)
-            metrics_list: List of metric dicts, one per parameter set from previous iteration
+            metrics_list: List of metric dicts, one per distribution from previous iteration
             iteration: Current iteration number
             config: Experiment configuration dict
 
         Returns:
-            next_params: List of parameter dicts for next iteration
+            next_distributions: List of distribution specifications for next iteration
             converged: Whether optimization should stop
         """
         # Report results from PREVIOUS iteration
         if iteration > 0 and (iteration - 1) in self.pending_trials:
             prev_trials = self.pending_trials[iteration - 1]
 
-            # Verify we have metrics for each trial
+            # Verify we have metrics for each trial (each trial = one distribution)
             if len(metrics_list) != len(prev_trials):
                 raise ValueError(
                     f"Mismatch: {len(metrics_list)} metric dicts provided but "
@@ -209,7 +170,7 @@ class OptunaOptimizer:
                 )
 
             print(f"  Reporting results for iteration {iteration-1}:")
-            print(f"    Completing {len(prev_trials)} parameter sets from iteration {iteration-1}")
+            print(f"    Completing {len(prev_trials)} distributions from iteration {iteration-1}")
 
             # Tell Optuna about each trial's individual results
             for trial, metrics in zip(prev_trials, metrics_list):
@@ -217,26 +178,26 @@ class OptunaOptimizer:
                 trial_values = [metrics[metric_name] for metric_name in self.optimization_metrics]
                 self.study.tell(trial, trial_values)
 
-                # Print individual parameter set results
-                param_set_id = metrics.get('param_set_id', 'unknown')
+                # Print individual distribution results
+                dist_id = metrics.get('param_set_id', 'unknown')
                 metrics_str = ', '.join([f"{name}={metrics[name]:.4f}"
                                         for name in self.optimization_metrics])
-                print(f"      Param set {param_set_id}: {metrics_str}")
+                print(f"      Distribution {dist_id}: {metrics_str}")
 
             # Clean up completed trials
             del self.pending_trials[iteration - 1]
 
-        # Ask for next batch of parameter sets
-        n_sets = config.get('iteration_batch_size', 8)
-        next_params = []
+        # Ask for next batch of distributions
+        n_distributions = config.get('iteration_batch_size', 8)
+        next_distributions = []
         trials = []
 
-        print(f"\n  Suggesting {n_sets} parameter sets for iteration {iteration}...")
+        print(f"\n  Suggesting {n_distributions} distributions for iteration {iteration}...")
 
-        for i in range(n_sets):
+        for i in range(n_distributions):
             trial = self.study.ask()
-            params = self._define_search_space(trial)
-            next_params.append(params)
+            dist_spec = self._define_search_space(trial)
+            next_distributions.append(dist_spec)
             trials.append(trial)
 
         # Store pending trials for this iteration
@@ -254,4 +215,4 @@ class OptunaOptimizer:
         pareto_size = len(self.get_pareto_front())
         print(f"  Current Pareto front size: {pareto_size}")
 
-        return next_params, converged
+        return next_distributions, converged

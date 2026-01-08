@@ -149,13 +149,13 @@ class ExperimentRunner:
             n_param_sets=n_param_sets
         )
 
-        # Print individual parameter set metrics
+        # Print individual parameter set metrics (only optimization metrics)
         print(f"\n  Individual parameter set metrics:")
         for metrics in metrics_list:
             param_set_id = metrics['param_set_id']
-            print(f"    Param set {param_set_id}: mmd_rbf={metrics['mmd_rbf']:.4f}, "
-                  f"wasserstein={metrics['wasserstein']:.4f}, "
-                  f"mean_nn_distance={metrics['mean_nn_distance']:.4f}")
+            metrics_str = ', '.join([f"{name}={metrics[name]:.4f}"
+                                    for name in self.config['optimization_metrics']])
+            print(f"    Param set {param_set_id}: {metrics_str}")
 
         # Compute average metrics for display
         avg_metrics = {
@@ -229,9 +229,9 @@ class ExperimentRunner:
         prev_params = prev_data['params']
         prev_metrics_list = prev_data['metrics']  # Now a list of metric dicts
 
-        # Get next parameter sets from optimizer
-        print("\n[1/4] Getting next parameter sets from optimizer...")
-        next_params, converged = self.optimizer.suggest_next_parameters(
+        # Get next distributions from optimizer
+        print("\n[1/5] Getting next distributions from optimizer...")
+        next_distributions, converged = self.optimizer.suggest_next_distributions(
             synthetic_embeddings=prev_embeddings,
             synthetic_params=prev_params,
             real_embeddings=self.real_embeddings_400d,
@@ -239,32 +239,51 @@ class ExperimentRunner:
             iteration=iteration,
             config=self.config
         )
-        print(f"Optimizer suggested {len(next_params)} parameter sets")
+        print(f"Optimizer suggested {len(next_distributions)} distributions")
         if converged:
             print("Optimizer reports convergence!")
 
-        # Generate synthetic images with suggested parameters
-        print("\n[2/4] Generating synthetic images...")
+        # Sample parameter sets from distributions
+        print("\n[2/5] Sampling parameter sets from distributions...")
+        next_params = []
+        replications_per_dist = self.config['replications_per_iteration']
+
+        for dist_idx, dist_spec in enumerate(next_distributions):
+            # Sample parameters from this distribution
+            params = self.sampler.sample_from_distribution_spec(
+                dist_spec,
+                n_samples=replications_per_dist,
+                seed=iteration * 10000 + dist_idx
+            )
+            # Tag each param set with its distribution ID
+            for p in params:
+                p['distribution_id'] = dist_idx
+            next_params.extend(params)
+
+        print(f"Sampled {len(next_params)} parameter sets from {len(next_distributions)} distributions")
+
+        # Generate synthetic images with sampled parameters
+        print("\n[3/5] Generating synthetic images...")
         synthetic_images, synthetic_metadata = self.generator.generate_batch(
             next_params,
-            replications=self.config['replications_per_iteration'],
-            seed_offset=iteration * 10000
+            replications=1,  # Already sampled, no additional replications needed
+            seed_offset=iteration * 100000
         )
         print(f"Generated {len(synthetic_images)} synthetic images")
 
         # Extract and transform embeddings
-        print("\n[3/4] Extracting embeddings...")
+        print("\n[4/5] Extracting embeddings...")
         synthetic_embeddings_768d = self.embedder.embed_batch(synthetic_images)
         synthetic_embeddings_400d = self.pca_embedding.transform(synthetic_embeddings_768d)
 
-        # Calculate per-parameter-set metrics
-        print("\n[4/4] Computing per-parameter-set metrics...")
-        n_param_sets = len(next_params)
+        # Calculate per-distribution metrics
+        print("\n[5/5] Computing per-distribution metrics...")
+        n_distributions = len(next_distributions)
         metrics_list = compute_per_param_set_metrics(
             synthetic_embeddings_400d,
             synthetic_metadata,
             self.real_embeddings_400d,
-            n_param_sets=n_param_sets
+            n_param_sets=n_distributions
         )
 
         # Compute average metrics for display
@@ -275,7 +294,7 @@ class ExperimentRunner:
             'coverage': np.mean([m['coverage'] for m in metrics_list])
         }
 
-        print(f"\n  Average Synthetic vs Real (across {n_param_sets} parameter sets):")
+        print(f"\n  Average Synthetic vs Real (across {n_distributions} distributions):")
         print(f"    MMD (RBF): {avg_metrics['mmd_rbf']:.4f}")
         print(f"    Wasserstein: {avg_metrics['wasserstein']:.4f}")
         print(f"    Mean NN distance: {avg_metrics['mean_nn_distance']:.4f}")
@@ -286,11 +305,12 @@ class ExperimentRunner:
             iteration=iteration,
             params=next_params,
             embeddings=synthetic_embeddings_400d,
-            metrics=metrics_list,  # Save list of per-param-set metrics
+            metrics=metrics_list,  # Save list of per-distribution metrics
             metadata={
                 'n_images': len(synthetic_images),
                 'converged': converged,
-                'n_param_sets': n_param_sets
+                'n_distributions': n_distributions,
+                'replications_per_distribution': replications_per_dist
             }
         )
 

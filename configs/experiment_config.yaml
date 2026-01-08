@@ -55,6 +55,31 @@ param_precision:
   center_y: 2           # round(0.4567, 2) = 0.46  (step size: 0.01)
   position_spread: 2    # round(0.4567, 2) = 0.46  (step size: 0.01)
 
+# Distribution parameter bounds (for optimizer to suggest distribution moments)
+# These bounds define the search space for distribution parameters
+distribution_param_bounds:
+  void_shape:
+    # Logit bounds for softmax transformation (unconstrained space)
+    logit_range: [-3.0, 3.0]  # Will be transformed to probabilities via softmax
+  void_count:
+    mean: [1, 10]     # Integer mean of distribution
+    std: [0.5, 5.0]   # Standard deviation
+  base_size:
+    mean: [5.0, 15.0]  # Mean void size
+    std: [0.5, 5.0]    # Size variation
+  rotation:
+    mean: [0.0, 360.0]  # Mean rotation angle
+    std: [10.0, 180.0]  # Rotation variation
+  center_x:
+    mean: [0.2, 0.8]   # Mean x position
+    std: [0.05, 0.3]   # Position variation
+  center_y:
+    mean: [0.2, 0.8]   # Mean y position
+    std: [0.05, 0.3]   # Position variation
+  position_spread:
+    mean: [0.1, 0.8]   # Mean spread
+    std: [0.05, 0.3]   # Spread variation
+
 # Parameter distributions (initial guesses, tune empirically)
 # Note: Sampling will clip to param_bounds defined above
 param_distributions:
@@ -68,8 +93,8 @@ param_distributions:
       mean: 4
       std: 3
     base_size:
-      mean: 20
-      std: 5
+      mean: 10
+      std: 3
     rotation:
       mean: 180
       std: 90
@@ -118,8 +143,8 @@ param_distributions:
       mean: 20
       std: 3
     base_size:
-      mean: 6
-      std: 1
+      mean: 4
+      std: 2
     rotation:
       mean: 45
       std: 20
