@@ -66,6 +66,35 @@ def mini_config(temp_test_dir):
         'optimizer': {
             'n_startup_trials': 2,
             'multivariate': True
+        },
+        'distribution_param_bounds': {
+            'void_shape': {
+                'logit_range': [-3.0, 3.0]
+            },
+            'void_count': {
+                'mean': [1, 10],
+                'std': [0.5, 5.0]
+            },
+            'base_size': {
+                'mean': [5.0, 15.0],
+                'std': [0.5, 5.0]
+            },
+            'rotation': {
+                'mean': [0.0, 360.0],
+                'std': [10.0, 180.0]
+            },
+            'center_x': {
+                'mean': [0.2, 0.8],
+                'std': [0.05, 0.3]
+            },
+            'center_y': {
+                'mean': [0.2, 0.8],
+                'std': [0.05, 0.3]
+            },
+            'position_spread': {
+                'mean': [0.1, 0.8],
+                'std': [0.05, 0.3]
+            }
         }
     }
 
@@ -74,9 +103,9 @@ class TestOptunaE2EIntegration:
     """End-to-end integration tests with full pipeline"""
 
     def _create_metrics_list(self, n_param_sets: int, base_metrics: dict) -> list:
-        """Helper to create metrics_list with param_set_id for each parameter set"""
+        """Helper to create metrics_list with param_set_id for each distribution"""
         return [
-            {**base_metrics, 'param_set_id': f'ps_{i:03d}'}
+            {**base_metrics, 'param_set_id': f'dist_{i:03d}'}
             for i in range(n_param_sets)
         ]
 
@@ -126,8 +155,8 @@ class TestOptunaE2EIntegration:
                 prev_params = iteration_results[-1]['params']
                 prev_metrics_list = iteration_results[-1]['metrics_list']
 
-            # Ask optimizer for next parameters
-            next_params, converged = optimizer.suggest_next_parameters(
+            # Ask optimizer for next distributions
+            next_distributions, converged = optimizer.suggest_next_distributions(
                 synthetic_embeddings=prev_embeddings,
                 synthetic_params=prev_params,
                 real_embeddings=real_embeddings,
@@ -136,25 +165,39 @@ class TestOptunaE2EIntegration:
                 config=mini_config
             )
 
-            # Generate synthetic images with suggested parameters
+            # Sample parameters from distributions
+            next_params = []
+            for dist_idx, dist_spec in enumerate(next_distributions):
+                params = sampler.sample_from_distribution_spec(
+                    dist_spec,
+                    n_samples=mini_config['replications_per_iteration'],
+                    seed=iteration * 1000 + dist_idx
+                )
+                # Tag with distribution_id
+                for p in params:
+                    p['distribution_id'] = dist_idx
+                next_params.extend(params)
+
+            # Generate synthetic images with sampled parameters
             print(f"[Test] Generating {len(next_params)} synthetic samples...")
             synthetic_images, synthetic_metadata = generator.generate_batch(
                 next_params,
-                replications=mini_config['replications_per_iteration'],
-                seed_offset=iteration * 1000
+                replications=1,  # Already sampled
+                seed_offset=iteration * 100000
             )
 
             # Extract and project embeddings
             synthetic_embeddings_full = embedder.embed_batch(synthetic_images)
             synthetic_embeddings = pca.transform(synthetic_embeddings_full)
 
-            # Compute per-parameter-set metrics
+            # Compute per-distribution metrics
             from src.optimization.metrics import compute_per_param_set_metrics
+            n_distributions = mini_config['iteration_batch_size']
             metrics_list = compute_per_param_set_metrics(
                 synthetic_embeddings,
                 synthetic_metadata,
                 real_embeddings,
-                n_param_sets=len(next_params)
+                n_param_sets=n_distributions
             )
 
             # Also compute aggregate metrics for logging
@@ -178,12 +221,14 @@ class TestOptunaE2EIntegration:
         assert len(iteration_results) == 2, "Should complete 2 iterations"
 
         # Verify optimizer produced valid parameters
+        expected_params = mini_config['iteration_batch_size'] * mini_config['replications_per_iteration']
         for result in iteration_results:
-            assert len(result['params']) == mini_config['iteration_batch_size']
+            assert len(result['params']) == expected_params
             for params in result['params']:
                 assert 'void_shape' in params
                 assert 'void_count' in params
                 assert params['void_count'] >= 1 and params['void_count'] <= 10
+                assert 'distribution_id' in params  # Should be tagged with distribution ID
 
         # Verify metrics were computed
         import numpy as np
@@ -254,8 +299,8 @@ class TestOptunaE2EIntegration:
             # Update metrics history
             reporter.update_metrics_history(iteration - 1, prev_metrics)
 
-            # Get next parameters
-            next_params, converged = optimizer.suggest_next_parameters(
+            # Get next distributions
+            next_distributions, converged = optimizer.suggest_next_distributions(
                 synthetic_embeddings=prev_embeddings,
                 synthetic_params=prev_params,
                 real_embeddings=real_embeddings,
@@ -264,11 +309,23 @@ class TestOptunaE2EIntegration:
                 config=mini_config
             )
 
+            # Sample parameters from distributions
+            next_params = []
+            for dist_idx, dist_spec in enumerate(next_distributions):
+                params = sampler.sample_from_distribution_spec(
+                    dist_spec,
+                    n_samples=mini_config['replications_per_iteration'],
+                    seed=iteration * 1000 + dist_idx
+                )
+                for p in params:
+                    p['distribution_id'] = dist_idx
+                next_params.extend(params)
+
             # Generate synthetic images
             synthetic_images, synthetic_metadata = generator.generate_batch(
                 next_params,
-                replications=mini_config['replications_per_iteration'],
-                seed_offset=iteration * 1000
+                replications=1,
+                seed_offset=iteration * 100000
             )
 
             # Save sample images
@@ -281,13 +338,14 @@ class TestOptunaE2EIntegration:
             # Store for 2D projection
             synthetic_embeddings_by_iter[iteration] = synthetic_embeddings
 
-            # Compute per-parameter-set metrics
+            # Compute per-distribution metrics
             from src.optimization.metrics import compute_per_param_set_metrics
+            n_distributions = mini_config['iteration_batch_size']
             metrics_list = compute_per_param_set_metrics(
                 synthetic_embeddings,
                 synthetic_metadata,
                 real_embeddings,
-                n_param_sets=len(next_params)
+                n_param_sets=n_distributions
             )
 
             # Also compute aggregate metrics for logging
@@ -361,7 +419,7 @@ class TestOptunaE2EIntegration:
         mock_embeddings = np.random.randn(4, mini_config['pca_embedding_dim'])
         mock_metrics_list = self._create_metrics_list(mini_config['iteration_batch_size'], {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5})
 
-        next_params1, _ = optimizer1.suggest_next_parameters(
+        next_distributions1, _ = optimizer1.suggest_next_distributions(
             synthetic_embeddings=mock_embeddings,
             synthetic_params=real_params,
             real_embeddings=mock_embeddings,
@@ -440,8 +498,8 @@ class TestOptunaE2EIntegration:
         for iteration in range(1, mini_config['max_iterations'] + 1):
             print(f"\n[Full Test] === Iteration {iteration} ===")
 
-            # Optimizer suggests next parameters
-            next_params, converged = optimizer.suggest_next_parameters(
+            # Optimizer suggests next distributions
+            next_distributions, converged = optimizer.suggest_next_distributions(
                 synthetic_embeddings=prev_embeddings,
                 synthetic_params=prev_params,
                 real_embeddings=real_embeddings,
@@ -450,21 +508,34 @@ class TestOptunaE2EIntegration:
                 config=mini_config
             )
 
+            # Sample parameters from distributions
+            next_params = []
+            for dist_idx, dist_spec in enumerate(next_distributions):
+                params = sampler.sample_from_distribution_spec(
+                    dist_spec,
+                    n_samples=mini_config['replications_per_iteration'],
+                    seed=iteration * 1000 + dist_idx
+                )
+                for p in params:
+                    p['distribution_id'] = dist_idx
+                next_params.extend(params)
+
             # Generate and evaluate
             synthetic_images, synthetic_metadata = generator.generate_batch(
                 next_params,
-                replications=mini_config['replications_per_iteration'],
-                seed_offset=iteration * 10000
+                replications=1,
+                seed_offset=iteration * 100000
             )
 
             synthetic_embeddings = pca.transform(embedder.embed_batch(synthetic_images))
 
-            # Compute per-parameter-set metrics
+            # Compute per-distribution metrics
+            n_distributions = mini_config['iteration_batch_size']
             metrics_list = compute_per_param_set_metrics(
                 synthetic_embeddings,
                 synthetic_metadata,
                 real_embeddings,
-                n_param_sets=len(next_params)
+                n_param_sets=n_distributions
             )
 
             # Also compute aggregate metrics for tracking
@@ -535,8 +606,8 @@ class TestOptunaE2EIntegration:
         for iteration in range(3):
             print(f"\n[E2E Test] === Iteration {iteration} ===")
 
-            # Get next parameters (triggers ask/tell)
-            next_params, converged = optimizer.suggest_next_parameters(
+            # Get next distributions (triggers ask/tell)
+            next_distributions, converged = optimizer.suggest_next_distributions(
                 synthetic_embeddings=prev_embeddings,
                 synthetic_params=prev_params,
                 real_embeddings=real_embeddings,
@@ -562,25 +633,38 @@ class TestOptunaE2EIntegration:
                 assert (iteration - 1) not in optimizer.pending_trials, \
                     f"Iteration {iteration-1} should have been completed"
 
-            # Generate synthetic images with suggested parameters
+            # Sample parameters from distributions
+            next_params = []
+            for dist_idx, dist_spec in enumerate(next_distributions):
+                params = sampler.sample_from_distribution_spec(
+                    dist_spec,
+                    n_samples=mini_config['replications_per_iteration'],
+                    seed=iteration * 1000 + dist_idx
+                )
+                for p in params:
+                    p['distribution_id'] = dist_idx
+                next_params.extend(params)
+
+            # Generate synthetic images with sampled parameters
             print(f"[E2E Test] Generating {len(next_params)} synthetic samples...")
             synthetic_images, synthetic_metadata = generator.generate_batch(
                 next_params,
-                replications=mini_config['replications_per_iteration'],
-                seed_offset=iteration * 1000
+                replications=1,
+                seed_offset=iteration * 100000
             )
 
             # Extract embeddings
             synthetic_embeddings_full = embedder.embed_batch(synthetic_images)
             synthetic_embeddings = pca.transform(synthetic_embeddings_full)
 
-            # Compute per-parameter-set metrics
+            # Compute per-distribution metrics
             from src.optimization.metrics import compute_per_param_set_metrics
+            n_distributions = mini_config['iteration_batch_size']
             metrics_list = compute_per_param_set_metrics(
                 synthetic_embeddings,
                 synthetic_metadata,
                 real_embeddings,
-                n_param_sets=len(next_params)
+                n_param_sets=n_distributions
             )
 
             # Also compute aggregate metrics for logging

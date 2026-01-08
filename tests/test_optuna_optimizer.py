@@ -44,6 +44,35 @@ def test_config():
             'center_x': 2,
             'center_y': 2,
             'position_spread': 2
+        },
+        'distribution_param_bounds': {
+            'void_shape': {
+                'logit_range': [-3.0, 3.0]
+            },
+            'void_count': {
+                'mean': [1, 10],
+                'std': [0.5, 5.0]
+            },
+            'base_size': {
+                'mean': [5.0, 15.0],
+                'std': [0.5, 5.0]
+            },
+            'rotation': {
+                'mean': [0.0, 360.0],
+                'std': [10.0, 180.0]
+            },
+            'center_x': {
+                'mean': [0.2, 0.8],
+                'std': [0.05, 0.3]
+            },
+            'center_y': {
+                'mean': [0.2, 0.8],
+                'std': [0.05, 0.3]
+            },
+            'position_spread': {
+                'mean': [0.1, 0.8],
+                'std': [0.05, 0.3]
+            }
         }
     }
 
@@ -52,9 +81,9 @@ class TestOptunaOptimizer:
     """Test suite for OptunaOptimizer Stage 3: Proper ask/tell pattern"""
 
     def _create_metrics_list(self, n_param_sets: int, base_metrics: dict) -> list:
-        """Helper to create metrics_list with param_set_id for each parameter set"""
+        """Helper to create metrics_list with param_set_id for each distribution"""
         return [
-            {**base_metrics, 'param_set_id': f'ps_{i:03d}'}
+            {**base_metrics, 'param_set_id': f'dist_{i:03d}'}
             for i in range(n_param_sets)
         ]
 
@@ -73,59 +102,55 @@ class TestOptunaOptimizer:
         n_metrics = len(test_config['optimization_metrics'])
         assert len(optimizer.study.directions) == n_metrics
 
-    def test_search_space_valid_parameters(self, temp_experiment_dir, test_config):
-        """Test that _define_search_space produces valid parameters within bounds"""
+    def test_search_space_valid_distributions(self, temp_experiment_dir, test_config):
+        """Test that _define_search_space produces valid distribution specs within bounds"""
         optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
 
-        # Generate multiple parameter sets
-        param_sets = []
+        # Generate multiple distribution specs
+        dist_specs = []
         for _ in range(10):
             trial = optimizer.study.ask()
-            params = optimizer._define_search_space(trial)
-            param_sets.append(params)
+            dist_spec = optimizer._define_search_space(trial)
+            dist_specs.append(dist_spec)
 
-        # Verify all parameter sets are valid
-        bounds = test_config['param_bounds']
-        for params in param_sets:
-            # Check void_shape is valid
-            assert params['void_shape'] in bounds['void_shape']
+        # Verify all distribution specs are valid
+        dist_bounds = test_config['distribution_param_bounds']
+        for dist_spec in dist_specs:
+            # Check void_shape probabilities sum to 1
+            probs = dist_spec['void_shape']['probabilities']
+            assert abs(sum(probs.values()) - 1.0) < 1e-6
+            assert all(0 <= p <= 1 for p in probs.values())
 
-            # Check void_count is in bounds and integer
-            assert bounds['void_count'][0] <= params['void_count'] <= bounds['void_count'][1]
-            assert isinstance(params['void_count'], int)
+            # Check void_count has mean and std within bounds
+            assert dist_bounds['void_count']['mean'][0] <= dist_spec['void_count']['mean'] <= dist_bounds['void_count']['mean'][1]
+            assert dist_bounds['void_count']['std'][0] <= dist_spec['void_count']['std'] <= dist_bounds['void_count']['std'][1]
 
-            # Check continuous parameters are in bounds
-            assert bounds['base_size'][0] <= params['base_size'] <= bounds['base_size'][1]
-            assert bounds['rotation'][0] <= params['rotation'] <= bounds['rotation'][1]
-            assert bounds['center_x'][0] <= params['center_x'] <= bounds['center_x'][1]
-            assert bounds['center_y'][0] <= params['center_y'] <= bounds['center_y'][1]
-            assert bounds['position_spread'][0] <= params['position_spread'] <= bounds['position_spread'][1]
+            # Check continuous parameters have mean and std within bounds
+            for param_name in ['base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
+                assert dist_bounds[param_name]['mean'][0] <= dist_spec[param_name]['mean'] <= dist_bounds[param_name]['mean'][1]
+                assert dist_bounds[param_name]['std'][0] <= dist_spec[param_name]['std'] <= dist_bounds[param_name]['std'][1]
 
-    def test_parameter_precision(self, temp_experiment_dir, test_config):
-        """Test that parameters respect precision requirements"""
+    def test_distribution_structure(self, temp_experiment_dir, test_config):
+        """Test that distribution specs have correct structure"""
         optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
 
-        # Generate parameter sets
-        param_sets = []
+        # Generate distribution specs
+        dist_specs = []
         for _ in range(10):
             trial = optimizer.study.ask()
-            params = optimizer._define_search_space(trial)
-            param_sets.append(params)
+            dist_spec = optimizer._define_search_space(trial)
+            dist_specs.append(dist_spec)
 
-        precision = test_config['param_precision']
+        for dist_spec in dist_specs:
+            # Check void_shape has probabilities dict
+            assert 'probabilities' in dist_spec['void_shape']
+            assert set(dist_spec['void_shape']['probabilities'].keys()) == {'circle', 'ellipse', 'irregular'}
 
-        for params in param_sets:
-            # base_size: 1 decimal place
-            # Use np.isclose to handle floating point comparison
-            assert np.isclose(params['base_size'], round(params['base_size'], precision['base_size']))
-
-            # rotation: 1 decimal place
-            assert np.isclose(params['rotation'], round(params['rotation'], precision['rotation']))
-
-            # center_x, center_y, position_spread: 2 decimal places
-            assert np.isclose(params['center_x'], round(params['center_x'], precision['center_x']))
-            assert np.isclose(params['center_y'], round(params['center_y'], precision['center_y']))
-            assert np.isclose(params['position_spread'], round(params['position_spread'], precision['position_spread']))
+            # Check all numeric params have mean and std
+            for param_name in ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
+                assert 'mean' in dist_spec[param_name]
+                assert 'std' in dist_spec[param_name]
+                assert dist_spec[param_name]['std'] > 0  # Std must be positive
 
     def test_suggest_next_parameters_batch_size(self, temp_experiment_dir, test_config):
         """Test that suggest_next_parameters returns correct batch size"""
@@ -142,7 +167,7 @@ class TestOptunaOptimizer:
         )
 
         # Test iteration 1
-        next_params, converged = optimizer.suggest_next_parameters(
+        next_params, converged = optimizer.suggest_next_distributions(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
@@ -169,7 +194,7 @@ class TestOptunaOptimizer:
         )
 
         # Test at max_iterations
-        next_params, converged = optimizer.suggest_next_parameters(
+        next_params, converged = optimizer.suggest_next_distributions(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
@@ -194,7 +219,7 @@ class TestOptunaOptimizer:
             {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
         )
 
-        next_params1, _ = optimizer1.suggest_next_parameters(
+        next_params1, _ = optimizer1.suggest_next_distributions(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
@@ -212,8 +237,8 @@ class TestOptunaOptimizer:
         n_trials_2 = len(optimizer2.study.trials)
         assert n_trials_2 == n_trials_1
 
-    def test_parameter_structure(self, temp_experiment_dir, test_config):
-        """Test that returned parameters have correct structure"""
+    def test_distribution_spec_structure(self, temp_experiment_dir, test_config):
+        """Test that returned distribution specs have correct structure"""
         optimizer = OptunaOptimizer(temp_experiment_dir, test_config)
 
         synthetic_embeddings = np.random.randn(24, 400)
@@ -224,7 +249,7 @@ class TestOptunaOptimizer:
             {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
         )
 
-        next_params, _ = optimizer.suggest_next_parameters(
+        next_distributions, _ = optimizer.suggest_next_distributions(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
@@ -233,15 +258,21 @@ class TestOptunaOptimizer:
             config=test_config
         )
 
-        # Check each parameter set has all required keys
+        # Check each distribution spec has all required keys
         required_keys = {'void_shape', 'void_count', 'base_size', 'rotation',
                         'center_x', 'center_y', 'position_spread'}
 
-        for params in next_params:
-            assert set(params.keys()) == required_keys
+        for dist_spec in next_distributions:
+            assert set(dist_spec.keys()) == required_keys
+            # void_shape should have probabilities
+            assert 'probabilities' in dist_spec['void_shape']
+            # Others should have mean and std
+            for key in required_keys - {'void_shape'}:
+                assert 'mean' in dist_spec[key]
+                assert 'std' in dist_spec[key]
 
     def test_reproducibility_with_seed(self, temp_experiment_dir, test_config):
-        """Test that same seed produces same parameter suggestions"""
+        """Test that same seed produces same distribution suggestions"""
         # First optimizer
         optimizer1 = OptunaOptimizer(temp_experiment_dir, test_config)
 
@@ -250,7 +281,7 @@ class TestOptunaOptimizer:
         real_embeddings = np.random.randn(15, 400)
         metrics_list = self._create_metrics_list(test_config['iteration_batch_size'], {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5})
 
-        next_params1, _ = optimizer1.suggest_next_parameters(
+        next_dists1, _ = optimizer1.suggest_next_distributions(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
@@ -263,7 +294,7 @@ class TestOptunaOptimizer:
         temp_dir2 = Path(tempfile.mkdtemp())
         optimizer2 = OptunaOptimizer(temp_dir2, test_config)
 
-        next_params2, _ = optimizer2.suggest_next_parameters(
+        next_dists2, _ = optimizer2.suggest_next_distributions(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
@@ -272,10 +303,10 @@ class TestOptunaOptimizer:
             config=test_config
         )
 
-        # Should produce same parameters (TPE is deterministic with seed)
-        # Note: This might not be exactly equal due to TPE's behavior, but check first param
-        assert next_params1[0]['void_shape'] == next_params2[0]['void_shape']
-        assert next_params1[0]['void_count'] == next_params2[0]['void_count']
+        # Should produce same distributions (TPE is deterministic with seed)
+        # Check first distribution's void_count mean and probabilities
+        assert next_dists1[0]['void_count']['mean'] == next_dists2[0]['void_count']['mean']
+        assert next_dists1[0]['void_shape']['probabilities'] == next_dists2[0]['void_shape']['probabilities']
 
         # Cleanup
         shutil.rmtree(temp_dir2)
@@ -306,7 +337,7 @@ class TestOptunaOptimizer:
                 'mean_nn_distance': 3.0 + i * 0.2
             })
 
-            next_params, _ = optimizer.suggest_next_parameters(
+            next_params, _ = optimizer.suggest_next_distributions(
                 synthetic_embeddings,
                 synthetic_params,
                 real_embeddings,
@@ -345,7 +376,7 @@ class TestOptunaOptimizer:
                 'mean_nn_distance': 3.5 - i * 0.3
             })
 
-            optimizer.suggest_next_parameters(
+            optimizer.suggest_next_distributions(
                 synthetic_embeddings,
                 synthetic_params,
                 real_embeddings,
@@ -378,7 +409,7 @@ class TestOptunaOptimizer:
         metrics_list = self._create_metrics_list(test_config['iteration_batch_size'], {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5})
 
         # Ask for parameters for iteration 0
-        next_params, _ = optimizer.suggest_next_parameters(
+        next_params, _ = optimizer.suggest_next_distributions(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
@@ -404,7 +435,7 @@ class TestOptunaOptimizer:
             test_config['iteration_batch_size'],
             {'mmd_rbf': 0.15, 'wasserstein': 0.08, 'mean_nn_distance': 3.5}
         )
-        next_params_0, _ = optimizer.suggest_next_parameters(
+        next_params_0, _ = optimizer.suggest_next_distributions(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
@@ -422,7 +453,7 @@ class TestOptunaOptimizer:
             test_config['iteration_batch_size'],
             {'mmd_rbf': 0.12, 'wasserstein': 0.07, 'mean_nn_distance': 3.2}
         )
-        next_params_1, _ = optimizer.suggest_next_parameters(
+        next_params_1, _ = optimizer.suggest_next_distributions(
             synthetic_embeddings,
             next_params_0,
             real_embeddings,
@@ -461,7 +492,7 @@ class TestOptunaOptimizer:
             })
 
             # Ask for next parameters
-            next_params, _ = optimizer.suggest_next_parameters(
+            next_params, _ = optimizer.suggest_next_distributions(
                 synthetic_embeddings,
                 synthetic_params,
                 real_embeddings,
@@ -507,7 +538,7 @@ class TestOptunaOptimizer:
             test_config['iteration_batch_size'],
             {'mmd_rbf': 0.99, 'wasserstein': 0.99, 'mean_nn_distance': 99.9}
         )
-        next_params_0, _ = optimizer.suggest_next_parameters(
+        next_params_0, _ = optimizer.suggest_next_distributions(
             synthetic_embeddings,
             synthetic_params,
             real_embeddings,
@@ -522,7 +553,7 @@ class TestOptunaOptimizer:
             test_config['iteration_batch_size'],
             base_metrics_0
         )
-        next_params_1, _ = optimizer.suggest_next_parameters(
+        next_params_1, _ = optimizer.suggest_next_distributions(
             synthetic_embeddings,
             next_params_0,
             real_embeddings,
@@ -556,7 +587,7 @@ class TestOptunaOptimizer:
                 'mean_nn_distance': 3.5 - iteration * 0.3
             })
 
-            next_params, _ = optimizer.suggest_next_parameters(
+            next_params, _ = optimizer.suggest_next_distributions(
                 synthetic_embeddings,
                 synthetic_params,
                 real_embeddings,

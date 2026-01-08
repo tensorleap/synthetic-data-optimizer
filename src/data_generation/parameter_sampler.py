@@ -78,6 +78,42 @@ class ParameterSampler:
 
         return param_sets
 
+    def sample_from_distribution_spec(
+        self,
+        dist_spec: Dict,
+        n_samples: int,
+        seed: Optional[int] = None
+    ) -> List[Dict]:
+        """
+        Sample N parameter sets from a given distribution specification.
+
+        Args:
+            dist_spec: Distribution specification dict with same structure as param_distributions
+            n_samples: Number of parameter sets to sample
+            seed: Random seed for reproducibility
+
+        Returns:
+            List of parameter dictionaries sampled from the distribution
+        """
+        if seed is not None:
+            np.random.seed(seed)
+
+        param_sets = []
+
+        for i in range(n_samples):
+            params = {
+                'void_shape': self._sample_categorical(dist_spec['void_shape']),
+                'void_count': self._sample_integer(dist_spec['void_count'], 'void_count'),
+                'base_size': self._sample_continuous(dist_spec['base_size'], 'base_size'),
+                'rotation': self._sample_continuous(dist_spec['rotation'], 'rotation'),
+                'center_x': self._sample_continuous(dist_spec['center_x'], 'center_x'),
+                'center_y': self._sample_continuous(dist_spec['center_y'], 'center_y'),
+                'position_spread': self._sample_continuous(dist_spec['position_spread'], 'position_spread'),
+            }
+            param_sets.append(params)
+
+        return param_sets
+
     def _sample_categorical(self, spec: Dict) -> str:
         """Sample from categorical distribution (e.g., void_shape)"""
         probabilities = spec['probabilities']
