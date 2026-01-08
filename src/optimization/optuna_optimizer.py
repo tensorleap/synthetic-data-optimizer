@@ -5,7 +5,7 @@ Optuna-based Bayesian optimizer for synthetic data parameter optimization.
 import optuna
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 from ..utils.bounds_inference import infer_bounds_from_csv
 
 
@@ -117,6 +117,41 @@ class OptunaOptimizer:
                 suggested_params[param_name] = self._suggest_single_param(trial, param_name, bounds)
 
         return suggested_params
+
+    def _suggest_group_probabilities(
+        self,
+        trial: optuna.Trial,
+        group_names: List[str],
+        logit_bounds: Tuple[float, float] = (-3.0, 3.0)
+    ) -> Dict[str, float]:
+        """
+        Suggest group probabilities using softmax reparameterization.
+
+        Optuna suggests unconstrained logits, which are then converted to valid
+        probabilities via softmax. This ensures probabilities sum to 1.0.
+
+        Args:
+            trial: Optuna trial object
+            group_names: List of group names (e.g., ['circle', 'ellipse', 'irregular'])
+            logit_bounds: Range for unconstrained logits (default: [-3.0, 3.0])
+
+        Returns:
+            Dictionary mapping group names to probabilities (sum to 1.0)
+            Keys are formatted as 'group_prob_{name}'
+        """
+        # Suggest unconstrained logits for each group
+        logits = {}
+        for group_name in group_names:
+            logit_key = f'group_logit_{group_name}'
+            logits[group_name] = trial.suggest_float(logit_key, logit_bounds[0], logit_bounds[1])
+
+        # Convert to probabilities via softmax
+        logit_values = np.array(list(logits.values()))
+        exp_logits = np.exp(logit_values - np.max(logit_values))  # Subtract max for numerical stability
+        probs = exp_logits / exp_logits.sum()
+
+        # Return with 'group_prob_' prefix
+        return {f'group_prob_{name}': float(prob) for name, prob in zip(group_names, probs)}
 
     def _suggest_single_param(self, trial: optuna.Trial, param_name: str, bounds):
         """
