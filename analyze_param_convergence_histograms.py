@@ -357,7 +357,7 @@ def analyze_solution_diversity(experiment_dir: Path, top_n: int = 5, n_samples: 
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
-    param_bounds = config['param_bounds']
+    distribution_param_bounds = config['distribution_param_bounds']
 
     # Load Optuna study
     study_path = experiment_dir / "optuna_study.db"
@@ -429,17 +429,26 @@ def analyze_solution_diversity(experiment_dir: Path, top_n: int = 5, n_samples: 
         experiment_dir
     )
 
-    # Plot diversity for each numeric parameter
-    numeric_params = ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']
+    # Plot diversity for each sampled parameter (iterate over real_params keys)
+    sample_param_names = list(real_params[0].keys()) if real_params else []
 
-    for param_name in numeric_params:
+    for param_name in sample_param_names:
+        # Skip categorical parameters (void_shape) for histogram plots
+        sample_value = real_params[0][param_name]
+        if isinstance(sample_value, str):
+            continue
+
+        # Get bounds from distribution_param_bounds using _mean suffix
+        bounds_key = f"{param_name}_mean"
+        bounds = distribution_param_bounds.get(bounds_key)
+
         print(f"\n  Processing {param_name}...")
         plot_diversity_histograms(
             real_params,
             top_n_params_list,
             top_n_trials,
             param_name,
-            param_bounds[param_name],
+            bounds,
             experiment_dir
         )
 
@@ -466,7 +475,7 @@ def analyze_param_distributions(experiment_dir: Path, top_n: int = 3, n_samples:
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
-    param_bounds = config['param_bounds']
+    distribution_param_bounds = config['distribution_param_bounds']
 
     # Load Optuna study
     study_path = experiment_dir / "optuna_study.db"
@@ -559,17 +568,28 @@ def analyze_param_distributions(experiment_dir: Path, top_n: int = 3, n_samples:
 
     print(f"\nFound {len(synthetic_params_by_iter)} iterations")
 
-    # Plot distribution for each numeric parameter
+    # Plot distribution for each sampled parameter (iterate over real_params keys)
     print("\nGenerating distribution plots...")
-    numeric_params = ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']
 
-    for param_name in numeric_params:
+    # Get parameter names from first real sample
+    sample_param_names = list(real_params[0].keys()) if real_params else []
+
+    for param_name in sample_param_names:
+        # Skip categorical parameters (void_shape) for histogram plots
+        sample_value = real_params[0][param_name]
+        if isinstance(sample_value, str):
+            continue
+
+        # Get bounds from distribution_param_bounds using _mean suffix
+        bounds_key = f"{param_name}_mean"
+        bounds = distribution_param_bounds.get(bounds_key)
+
         print(f"\n  Processing {param_name}...")
         plot_param_distributions(
             real_params,
             synthetic_params_by_iter,
             param_name,
-            param_bounds[param_name],
+            bounds,
             experiment_dir
         )
 
@@ -582,11 +602,12 @@ if __name__ == "__main__":
     import sys
 
     # Configuration
+    MODE = 'diversity'
     EXPERIMENT_DIR = Path("data/experiments/infineon_void_poc")
     N_SAMPLES = 100  # Generate 100 samples per distribution for rich histograms
 
     # Check for mode argument
-    mode = sys.argv[1] if len(sys.argv) > 1 else "convergence"
+    mode = sys.argv[1] if len(sys.argv) > 1 else MODE
 
     if mode == "diversity":
         # Diversity analysis mode
@@ -605,7 +626,7 @@ if __name__ == "__main__":
 
     else:
         # Convergence analysis mode (default)
-        TOP_N = 3  # Use top 3 best trials per iteration
+        TOP_N = 5  # Use top 3 best trials per iteration
 
         print("=" * 60)
         print("PARAMETER DISTRIBUTION CONVERGENCE ANALYSIS")

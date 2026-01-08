@@ -249,9 +249,11 @@ class ExperimentRunner:
         replications_per_dist = self.config['replications_per_iteration']
 
         for dist_idx, dist_spec in enumerate(next_distributions):
+            # Convert flat optimizer output to nested distribution spec
+            nested_spec = self.sampler.flat_to_nested_dist_spec(dist_spec)
             # Sample parameters from this distribution
             params = self.sampler.sample_from_distribution_spec(
-                dist_spec,
+                nested_spec,
                 n_samples=replications_per_dist,
                 seed=iteration * 10000 + dist_idx
             )

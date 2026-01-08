@@ -114,6 +114,47 @@ class ParameterSampler:
 
         return param_sets
 
+    @staticmethod
+    def flat_to_nested_dist_spec(flat_params: Dict) -> Dict:
+        """
+        Convert flat optimizer output to nested distribution specification.
+
+        Converts flat format like:
+            {'void_shape': 'circle', 'void_count_mean': 5, 'void_count_std': 2, ...}
+        To nested format like:
+            {'void_shape': {'probabilities': {'circle': 1.0}},
+             'void_count': {'mean': 5, 'std': 2}, ...}
+
+        Args:
+            flat_params: Flat parameter dict from optimizer
+
+        Returns:
+            Nested distribution specification compatible with sample_from_distribution_spec
+        """
+        nested = {}
+
+        # Handle void_shape (categorical) - convert single value to probability 1.0
+        if 'void_shape' in flat_params:
+            selected_shape = flat_params['void_shape']
+            nested['void_shape'] = {
+                'probabilities': {selected_shape: 1.0}
+            }
+
+        # Handle continuous/integer parameters with mean/std suffixes
+        param_bases = ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']
+
+        for param_base in param_bases:
+            mean_key = f'{param_base}_mean'
+            std_key = f'{param_base}_std'
+
+            if mean_key in flat_params and std_key in flat_params:
+                nested[param_base] = {
+                    'mean': flat_params[mean_key],
+                    'std': flat_params[std_key]
+                }
+
+        return nested
+
     def _sample_categorical(self, spec: Dict) -> str:
         """Sample from categorical distribution (e.g., void_shape)"""
         probabilities = spec['probabilities']
@@ -125,10 +166,12 @@ class ParameterSampler:
         """Sample integer from normal distribution, clipped to distribution bounds"""
         value = np.random.normal(spec['mean'], spec['std'])
 
-        # Apply bounds from distribution_param_bounds (using mean bounds as parameter range)
-        mean_bounds = self.distribution_param_bounds[param_name]['mean']
-        value = max(value, mean_bounds[0])
-        value = min(value, mean_bounds[1])
+        # Apply bounds from distribution_param_bounds (flat format: param_name_mean)
+        mean_bounds_key = f'{param_name}_mean'
+        if mean_bounds_key in self.distribution_param_bounds:
+            mean_bounds = self.distribution_param_bounds[mean_bounds_key]
+            value = max(value, mean_bounds[0])
+            value = min(value, mean_bounds[1])
 
         return int(round(value))
 
@@ -136,10 +179,12 @@ class ParameterSampler:
         """Sample continuous value from normal distribution, clipped to distribution bounds"""
         value = np.random.normal(spec['mean'], spec['std'])
 
-        # Apply bounds from distribution_param_bounds (using mean bounds as parameter range)
-        mean_bounds = self.distribution_param_bounds[param_name]['mean']
-        value = max(value, mean_bounds[0])
-        value = min(value, mean_bounds[1])
+        # Apply bounds from distribution_param_bounds (flat format: param_name_mean)
+        mean_bounds_key = f'{param_name}_mean'
+        if mean_bounds_key in self.distribution_param_bounds:
+            mean_bounds = self.distribution_param_bounds[mean_bounds_key]
+            value = max(value, mean_bounds[0])
+            value = min(value, mean_bounds[1])
 
         # Apply precision rounding if specified
         if param_name in self.param_precision:
