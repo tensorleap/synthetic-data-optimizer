@@ -315,6 +315,9 @@ class ExperimentRunner:
             }
         )
 
+        # Save distribution parameters (what optimizer suggested, not sampled values)
+        self._save_distribution_outputs(iteration, next_distributions, metrics_list)
+
         # Save sample images
         print("\nSaving sample images...")
         self.reporter.save_sample_images(synthetic_images, iteration=iteration, label="synthetic", n_samples=6)
@@ -326,6 +329,76 @@ class ExperimentRunner:
         print(f"\nIteration {iteration} complete!")
 
         return metrics_list, converged
+
+    def _save_distribution_outputs(
+        self,
+        iteration: int,
+        distributions: List[Tuple[str, Dict]],
+        metrics_list: List[Dict]
+    ):
+        """
+        Save distribution parameters and top N distributions at end of iteration.
+
+        Saves:
+        - distributions.json: The distribution params suggested this iteration
+        - top_distributions.json: Top N best distributions so far (by primary metric)
+        """
+        import json
+        import optuna
+
+        iter_dir = self.iteration_manager.experiment_dir / f"iteration_{iteration:03d}"
+
+        # Save this iteration's distribution parameters
+        current_distributions = []
+        for idx, (group_name, params) in enumerate(distributions):
+            current_distributions.append({
+                'distribution_id': idx,
+                'group': group_name,
+                'params': params,
+                'metrics': metrics_list[idx] if idx < len(metrics_list) else None
+            })
+
+        distributions_path = iter_dir / "distributions.json"
+        with open(distributions_path, 'w') as f:
+            json.dump(current_distributions, f, indent=2)
+        print(f"Saved distribution parameters to {distributions_path}")
+
+        # Save top N distributions from all completed trials
+        top_n = self.config.get('top_n_distributions', 10)
+        completed_trials = [
+            t for t in self.optimizer.study.trials
+            if t.state == optuna.trial.TrialState.COMPLETE
+        ]
+
+        if completed_trials:
+            # Sort by primary metric (first optimization metric, minimize)
+            sorted_trials = sorted(completed_trials, key=lambda t: t.values[0])
+            top_trials = sorted_trials[:top_n]
+
+            top_distributions = []
+            for trial in top_trials:
+                group = trial.params.get('group', 'unknown')
+                prefix = f"{group}__"
+                params = {
+                    k.replace(prefix, ''): v
+                    for k, v in trial.params.items()
+                    if k.startswith(prefix)
+                }
+                metrics = {
+                    self.optimizer.optimization_metrics[i]: trial.values[i]
+                    for i in range(len(self.optimizer.optimization_metrics))
+                }
+                top_distributions.append({
+                    'trial_number': trial.number,
+                    'group': group,
+                    'params': params,
+                    'metrics': metrics
+                })
+
+            top_path = iter_dir / "top_distributions.json"
+            with open(top_path, 'w') as f:
+                json.dump(top_distributions, f, indent=2)
+            print(f"Saved top {len(top_distributions)} distributions to {top_path}")
 
     def run(self) -> Dict:
         """

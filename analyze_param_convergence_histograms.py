@@ -602,7 +602,7 @@ if __name__ == "__main__":
     import sys
 
     # Configuration
-    MODE = 'diversity'
+    MODE = 'convergence'
     EXPERIMENT_DIR = Path("data/experiments/infineon_void_poc")
     N_SAMPLES = 100  # Generate 100 samples per distribution for rich histograms
 
@@ -611,7 +611,7 @@ if __name__ == "__main__":
 
     if mode == "diversity":
         # Diversity analysis mode
-        TOP_N = 5  # Analyze top 5 best solutions
+        TOP_N = 3  # Analyze top 5 best solutions
 
         print("=" * 60)
         print("SOLUTION DIVERSITY ANALYSIS")

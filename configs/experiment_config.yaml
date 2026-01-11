@@ -152,5 +152,8 @@ optimization_metrics:
 convergence_threshold: 0.05  # distribution similarity metric
 early_stop_patience: 3       # stop if no improvement for N iterations
 
+# Output settings
+top_n_distributions: 10      # number of top distributions to save per iteration
+
 # Optimization (placeholder)
 acquisition_function: "ucb"  # or "ei", "pi"
