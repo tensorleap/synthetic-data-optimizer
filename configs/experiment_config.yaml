@@ -1,6 +1,6 @@
 # Experiment setup
-experiment_name: "infineon_void_poc"
-experiment_dir: "data/experiments/infineon_void_poc"
+experiment_name: "test_grouped_params"
+experiments_base_dir: "data/experiments"  # experiment_dir is auto-derived from experiment_name
 
 # Base data
 base_image_dir: "data/base_chips"  # 5 NoVoids images
@@ -151,6 +151,9 @@ optimization_metrics:
 # Convergence criteria
 convergence_threshold: 0.05  # distribution similarity metric
 early_stop_patience: 3       # stop if no improvement for N iterations
+
+# Output settings
+top_n_distributions: 10      # number of top distributions to save per iteration
 
 # Optimization (placeholder)
 acquisition_function: "ucb"  # or "ei", "pi"

@@ -13,6 +13,7 @@ from ..embedding.dinov2_embedder import DinoV2Embedder
 from ..embedding.pca_projector import PCAProjector
 from ..optimization.metrics import compute_all_metrics, compute_per_param_set_metrics
 from ..optimization.optuna_optimizer import OptunaOptimizer
+from ..utils.bounds_inference import get_param_bounds
 from ..visualization.experiment_reporter import ExperimentReporter
 from .iteration_manager import IterationManager
 
@@ -31,6 +32,9 @@ class ExperimentRunner:
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
 
+        # Derive experiment directory from experiment name
+        self._setup_experiment_dir()
+
         # Initialize components
         self.sampler = ParameterSampler()
         self.generator = VoidGenerator(Path(self.config['base_image_dir']))
@@ -43,10 +47,15 @@ class ExperimentRunner:
         # Iteration manager
         self.iteration_manager = IterationManager(Path(self.config['experiment_dir']))
 
+        # Get parameter bounds from data
+        param_bounds, group_names = get_param_bounds()
+
         # Optuna optimizer
         self.optimizer = OptunaOptimizer(
             experiment_dir=Path(self.config['experiment_dir']),
-            config=self.config
+            config=self.config,
+            param_bounds=param_bounds,
+            group_names=group_names
         )
 
         # Experiment reporter for visualizations
@@ -61,6 +70,33 @@ class ExperimentRunner:
 
         print(f"Initialized ExperimentRunner")
         print(f"Experiment directory: {self.config['experiment_dir']}")
+
+    def _setup_experiment_dir(self):
+        """
+        Setup experiment directory based on experiment name.
+
+        Creates directory as data/experiments/{experiment_name}.
+        If directory exists, appends _1, _2, etc. until finding unused name.
+        Updates self.config['experiment_dir'] with the resolved path.
+        """
+        base_dir = Path(self.config.get('experiments_base_dir', 'data/experiments'))
+        exp_name = self.config['experiment_name']
+
+        # Try base name first
+        exp_dir = base_dir / exp_name
+        if not exp_dir.exists():
+            self.config['experiment_dir'] = str(exp_dir)
+            return
+
+        # Directory exists, find next available suffix
+        suffix = 1
+        while True:
+            exp_dir = base_dir / f"{exp_name}_{suffix}"
+            if not exp_dir.exists():
+                self.config['experiment_dir'] = str(exp_dir)
+                print(f"Experiment '{exp_name}' exists, using '{exp_name}_{suffix}'")
+                return
+            suffix += 1
 
     def run_iteration_0(self) -> Dict:
         """
@@ -223,18 +259,13 @@ class ExperimentRunner:
         print(f"ITERATION {iteration}")
         print("=" * 60)
 
-        # Load previous iteration data
+        # Load previous iteration metrics for optimizer
         prev_data = self.iteration_manager.load_iteration(iteration - 1)
-        prev_embeddings = prev_data['embeddings']
-        prev_params = prev_data['params']
-        prev_metrics_list = prev_data['metrics']  # Now a list of metric dicts
+        prev_metrics_list = prev_data['metrics']
 
         # Get next distributions from optimizer
         print("\n[1/5] Getting next distributions from optimizer...")
         next_distributions, converged = self.optimizer.suggest_next_distributions(
-            synthetic_embeddings=prev_embeddings,
-            synthetic_params=prev_params,
-            real_embeddings=self.real_embeddings_400d,
             metrics_list=prev_metrics_list,
             iteration=iteration,
             config=self.config
@@ -248,9 +279,9 @@ class ExperimentRunner:
         next_params = []
         replications_per_dist = self.config['replications_per_iteration']
 
-        for dist_idx, dist_spec in enumerate(next_distributions):
-            # Convert flat optimizer output to nested distribution spec
-            nested_spec = self.sampler.flat_to_nested_dist_spec(dist_spec)
+        for dist_idx, (group_name, dist_params) in enumerate(next_distributions):
+            # Convert grouped optimizer output to nested distribution spec
+            nested_spec = self.sampler.grouped_to_nested_dist_spec(group_name, dist_params)
             # Sample parameters from this distribution
             params = self.sampler.sample_from_distribution_spec(
                 nested_spec,
@@ -291,14 +322,12 @@ class ExperimentRunner:
         # Compute average metrics for display
         avg_metrics = {
             'mmd_rbf': np.mean([m['mmd_rbf'] for m in metrics_list]),
-            'wasserstein': np.mean([m['wasserstein'] for m in metrics_list]),
             'mean_nn_distance': np.mean([m['mean_nn_distance'] for m in metrics_list]),
             'coverage': np.mean([m['coverage'] for m in metrics_list])
         }
 
         print(f"\n  Average Synthetic vs Real (across {n_distributions} distributions):")
         print(f"    MMD (RBF): {avg_metrics['mmd_rbf']:.4f}")
-        print(f"    Wasserstein: {avg_metrics['wasserstein']:.4f}")
         print(f"    Mean NN distance: {avg_metrics['mean_nn_distance']:.4f}")
         print(f"    Coverage: {avg_metrics['coverage']:.4f}")
 
@@ -316,6 +345,9 @@ class ExperimentRunner:
             }
         )
 
+        # Save distribution parameters (what optimizer suggested, not sampled values)
+        self._save_distribution_outputs(iteration, next_distributions, metrics_list)
+
         # Save sample images
         print("\nSaving sample images...")
         self.reporter.save_sample_images(synthetic_images, iteration=iteration, label="synthetic", n_samples=6)
@@ -327,6 +359,76 @@ class ExperimentRunner:
         print(f"\nIteration {iteration} complete!")
 
         return metrics_list, converged
+
+    def _save_distribution_outputs(
+        self,
+        iteration: int,
+        distributions: List[Tuple[str, Dict]],
+        metrics_list: List[Dict]
+    ):
+        """
+        Save distribution parameters and top N distributions at end of iteration.
+
+        Saves:
+        - distributions.json: The distribution params suggested this iteration
+        - top_distributions.json: Top N best distributions so far (by primary metric)
+        """
+        import json
+        import optuna
+
+        iter_dir = self.iteration_manager.iterations_dir / f"iter_{iteration:03d}"
+
+        # Save this iteration's distribution parameters
+        current_distributions = []
+        for idx, (group_name, params) in enumerate(distributions):
+            current_distributions.append({
+                'distribution_id': idx,
+                'group': group_name,
+                'params': params,
+                'metrics': metrics_list[idx] if idx < len(metrics_list) else None
+            })
+
+        distributions_path = iter_dir / "distributions.json"
+        with open(distributions_path, 'w') as f:
+            json.dump(current_distributions, f, indent=2)
+        print(f"Saved distribution parameters to {distributions_path}")
+
+        # Save top N distributions from all completed trials
+        top_n = self.config.get('top_n_distributions', 10)
+        completed_trials = [
+            t for t in self.optimizer.study.trials
+            if t.state == optuna.trial.TrialState.COMPLETE
+        ]
+
+        if completed_trials:
+            # Sort by primary metric (first optimization metric, minimize)
+            sorted_trials = sorted(completed_trials, key=lambda t: t.values[0])
+            top_trials = sorted_trials[:top_n]
+
+            top_distributions = []
+            for trial in top_trials:
+                group = trial.params.get('group', 'unknown')
+                prefix = f"{group}__"
+                params = {
+                    k.replace(prefix, ''): v
+                    for k, v in trial.params.items()
+                    if k.startswith(prefix)
+                }
+                metrics = {
+                    self.optimizer.optimization_metrics[i]: trial.values[i]
+                    for i in range(len(self.optimizer.optimization_metrics))
+                }
+                top_distributions.append({
+                    'trial_number': trial.number,
+                    'group': group,
+                    'params': params,
+                    'metrics': metrics
+                })
+
+            top_path = iter_dir / "top_distributions.json"
+            with open(top_path, 'w') as f:
+                json.dump(top_distributions, f, indent=2)
+            print(f"Saved top {len(top_distributions)} distributions to {top_path}")
 
     def run(self) -> Dict:
         """

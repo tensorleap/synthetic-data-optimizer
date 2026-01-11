@@ -12,7 +12,7 @@ config_path = Path("configs/experiment_config.yaml")
 runner = ExperimentRunner(config_path)
 
 # Override max iterations to just 2
-runner.config['max_iterations'] = 10
+runner.config['max_iterations'] = 3
 
 # Run
 print("\n" + "=" * 80)
