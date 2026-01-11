@@ -115,43 +115,48 @@ class ParameterSampler:
         return param_sets
 
     @staticmethod
-    def flat_to_nested_dist_spec(flat_params: Dict) -> Dict:
+    def grouped_to_nested_dist_spec(group_name: str, params: Dict) -> Dict:
         """
-        Convert flat optimizer output to nested distribution specification.
+        Convert grouped optimizer output to nested distribution specification.
 
-        Converts flat format like:
-            {'void_shape': 'circle', 'void_count_mean': 5, 'void_count_std': 2, ...}
+        Converts grouped format (group_name, params) where:
+            group_name: 'circle', 'ellipse', or 'irregular'
+            params: {'void_count_mean': 5, 'void_count_std': 2, ...}
+
         To nested format like:
             {'void_shape': {'probabilities': {'circle': 1.0}},
              'void_count': {'mean': 5, 'std': 2}, ...}
 
         Args:
-            flat_params: Flat parameter dict from optimizer
+            group_name: The shape group (becomes void_shape with probability 1.0)
+            params: Flat parameter dict with _mean/_std suffixes
 
         Returns:
             Nested distribution specification compatible with sample_from_distribution_spec
         """
         nested = {}
 
-        # Handle void_shape (categorical) - convert single value to probability 1.0
-        if 'void_shape' in flat_params:
-            selected_shape = flat_params['void_shape']
-            nested['void_shape'] = {
-                'probabilities': {selected_shape: 1.0}
-            }
+        # Group name becomes void_shape with probability 1.0
+        nested['void_shape'] = {
+            'probabilities': {group_name: 1.0}
+        }
 
         # Handle continuous/integer parameters with mean/std suffixes
+        # Note: rotation only exists for ellipse, others get default
         param_bases = ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']
 
         for param_base in param_bases:
             mean_key = f'{param_base}_mean'
             std_key = f'{param_base}_std'
 
-            if mean_key in flat_params and std_key in flat_params:
+            if mean_key in params and std_key in params:
                 nested[param_base] = {
-                    'mean': flat_params[mean_key],
-                    'std': flat_params[std_key]
+                    'mean': params[mean_key],
+                    'std': params[std_key]
                 }
+            elif param_base == 'rotation':
+                # Default rotation for non-ellipse shapes (circles/irregular are rotation-invariant)
+                nested['rotation'] = {'mean': 0.0, 'std': 0.0}
 
         return nested
 

@@ -229,18 +229,13 @@ class ExperimentRunner:
         print(f"ITERATION {iteration}")
         print("=" * 60)
 
-        # Load previous iteration data
+        # Load previous iteration metrics for optimizer
         prev_data = self.iteration_manager.load_iteration(iteration - 1)
-        prev_embeddings = prev_data['embeddings']
-        prev_params = prev_data['params']
-        prev_metrics_list = prev_data['metrics']  # Now a list of metric dicts
+        prev_metrics_list = prev_data['metrics']
 
         # Get next distributions from optimizer
         print("\n[1/5] Getting next distributions from optimizer...")
         next_distributions, converged = self.optimizer.suggest_next_distributions(
-            synthetic_embeddings=prev_embeddings,
-            synthetic_params=prev_params,
-            real_embeddings=self.real_embeddings_400d,
             metrics_list=prev_metrics_list,
             iteration=iteration,
             config=self.config
@@ -254,9 +249,9 @@ class ExperimentRunner:
         next_params = []
         replications_per_dist = self.config['replications_per_iteration']
 
-        for dist_idx, dist_spec in enumerate(next_distributions):
-            # Convert flat optimizer output to nested distribution spec
-            nested_spec = self.sampler.flat_to_nested_dist_spec(dist_spec)
+        for dist_idx, (group_name, dist_params) in enumerate(next_distributions):
+            # Convert grouped optimizer output to nested distribution spec
+            nested_spec = self.sampler.grouped_to_nested_dist_spec(group_name, dist_params)
             # Sample parameters from this distribution
             params = self.sampler.sample_from_distribution_spec(
                 nested_spec,
