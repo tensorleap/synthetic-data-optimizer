@@ -1,6 +1,6 @@
 # Experiment setup
 experiment_name: "test_grouped_params"
-experiment_dir: "data/experiments/test_grouped_params"
+experiments_base_dir: "data/experiments"  # experiment_dir is auto-derived from experiment_name
 
 # Base data
 base_image_dir: "data/base_chips"  # 5 NoVoids images
