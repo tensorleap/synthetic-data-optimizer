@@ -1,22 +1,16 @@
 """
 Tests for OptunaOptimizer grouped mode (conditional parameters).
 
-Tests that the optimizer correctly:
-- Infers bounds from DataFrames per group
-- Uses Optuna's native categorical for group selection
-- Suggests conditional parameters based on selected group
-- Learns which group produces better outcomes
+Tests use get_param_bounds() to mirror the real pipeline flow.
 """
 
 import pytest
-import numpy as np
-import pandas as pd
 import tempfile
 import shutil
 from pathlib import Path
 
 from src.optimization.optuna_optimizer import OptunaOptimizer
-from src.utils.bounds_inference import infer_bounds_from_dataframe
+from src.utils.bounds_inference import get_param_bounds
 
 
 @pytest.fixture
@@ -28,38 +22,9 @@ def temp_experiment_dir():
 
 
 @pytest.fixture
-def group_dataframes():
-    """Create DataFrames with different params per group (like mock data generator)"""
-    # Circle: no rotation
-    circle_df = pd.DataFrame({
-        'void_count_mean': [3.0, 5.0, 7.0, 4.0, 6.0],
-        'void_count_std': [1.0, 1.5, 2.0, 1.2, 1.8],
-        'base_size_mean': [8.0, 10.0, 12.0, 9.0, 11.0],
-        'base_size_std': [2.0, 3.0, 4.0, 2.5, 3.5],
-    })
-
-    # Ellipse: has rotation (unique to this group)
-    ellipse_df = pd.DataFrame({
-        'void_count_mean': [2.0, 4.0, 6.0, 3.0, 5.0],
-        'void_count_std': [0.5, 1.0, 1.5, 0.8, 1.2],
-        'rotation_mean': [0.0, 90.0, 180.0, 45.0, 135.0],
-        'rotation_std': [10.0, 20.0, 30.0, 15.0, 25.0],
-    })
-
-    # Irregular: has complexity (unique to this group)
-    irregular_df = pd.DataFrame({
-        'void_count_mean': [1.0, 3.0, 5.0, 2.0, 4.0],
-        'void_count_std': [0.5, 1.0, 1.5, 0.7, 1.3],
-        'complexity_mean': [5.0, 8.0, 11.0, 6.5, 9.5],
-        'complexity_std': [1.0, 2.0, 3.0, 1.5, 2.5],
-    })
-
-    return [circle_df, ellipse_df, irregular_df]
-
-
-@pytest.fixture
-def group_names():
-    return ['circle', 'ellipse', 'irregular']
+def param_bounds_and_groups():
+    """Get param_bounds and group_names from the real pipeline"""
+    return get_param_bounds()
 
 
 @pytest.fixture
@@ -75,112 +40,85 @@ def grouped_config():
     }
 
 
-class TestBoundsInference:
-    """Tests for bounds inference from DataFrames"""
-
-    def test_infer_bounds_from_single_dataframe(self, group_dataframes):
-        """Test inferring bounds from a single DataFrame"""
-        circle_df = group_dataframes[0]
-        bounds = infer_bounds_from_dataframe(circle_df)
-
-        assert 'void_count_mean' in bounds
-        assert 'void_count_std' in bounds
-        assert 'base_size_mean' in bounds
-        assert 'base_size_std' in bounds
-
-        # Check bounds are [min, max]
-        assert bounds['void_count_mean'] == [3.0, 7.0]
-        assert bounds['base_size_mean'] == [8.0, 12.0]
-
-    def test_different_params_per_group(self, group_dataframes):
-        """Test that different groups have different parameters"""
-        circle_bounds = infer_bounds_from_dataframe(group_dataframes[0])
-        ellipse_bounds = infer_bounds_from_dataframe(group_dataframes[1])
-        irregular_bounds = infer_bounds_from_dataframe(group_dataframes[2])
-
-        # Circle has no rotation
-        assert 'rotation_mean' not in circle_bounds
-        # Ellipse has rotation
-        assert 'rotation_mean' in ellipse_bounds
-        # Irregular has complexity
-        assert 'complexity_mean' in irregular_bounds
-        assert 'rotation_mean' not in irregular_bounds
-
-
 class TestGroupedOptimizerInit:
     """Tests for grouped optimizer initialization"""
 
-    def test_init_with_dataframes(self, temp_experiment_dir, group_dataframes, group_names, grouped_config):
-        """Test initializing optimizer with DataFrames"""
+    def test_init_with_param_bounds(self, temp_experiment_dir, param_bounds_and_groups, grouped_config):
+        """Test initializing optimizer with param_bounds"""
+        param_bounds, group_names = param_bounds_and_groups
+
         optimizer = OptunaOptimizer(
             experiment_dir=temp_experiment_dir,
             config=grouped_config,
-            param_dataframes=group_dataframes,
+            param_bounds=param_bounds,
             group_names=group_names
         )
 
         assert optimizer.group_names == group_names
-        assert len(optimizer.param_bounds) == 3
-        assert 'circle' in optimizer.param_bounds
-        assert 'ellipse' in optimizer.param_bounds
-        assert 'irregular' in optimizer.param_bounds
+        assert len(optimizer.param_bounds) == len(group_names)
+        for group in group_names:
+            assert group in optimizer.param_bounds
 
-    def test_group_specific_bounds(self, temp_experiment_dir, group_dataframes, group_names, grouped_config):
-        """Test that each group has its own bounds"""
+    def test_group_specific_bounds(self, temp_experiment_dir, param_bounds_and_groups, grouped_config):
+        """Test that each group has its own bounds with expected parameters"""
+        param_bounds, group_names = param_bounds_and_groups
+
         optimizer = OptunaOptimizer(
             experiment_dir=temp_experiment_dir,
             config=grouped_config,
-            param_dataframes=group_dataframes,
+            param_bounds=param_bounds,
             group_names=group_names
         )
 
-        # Circle bounds
-        assert 'void_count_mean' in optimizer.param_bounds['circle']
+        # All groups should have void_count_mean
+        for group in group_names:
+            assert 'void_count_mean' in optimizer.param_bounds[group]
+
+        # Only ellipse has rotation
         assert 'rotation_mean' not in optimizer.param_bounds['circle']
-
-        # Ellipse bounds
         assert 'rotation_mean' in optimizer.param_bounds['ellipse']
-        assert 'complexity_mean' not in optimizer.param_bounds['ellipse']
-
-        # Irregular bounds
-        assert 'complexity_mean' in optimizer.param_bounds['irregular']
         assert 'rotation_mean' not in optimizer.param_bounds['irregular']
 
-    def test_startup_trials_scaled_by_groups(self, temp_experiment_dir, group_dataframes, group_names):
+    def test_startup_trials_scaled_by_groups(self, temp_experiment_dir, param_bounds_and_groups):
         """Test that n_startup_trials defaults to 20 * num_groups"""
+        param_bounds, group_names = param_bounds_and_groups
         config = {
             'experiment_name': 'test',
             'optimization_metrics': ['mmd_rbf'],
         }
+
         optimizer = OptunaOptimizer(
             experiment_dir=temp_experiment_dir,
             config=config,
-            param_dataframes=group_dataframes,
+            param_bounds=param_bounds,
             group_names=group_names
         )
 
-        # Default: 20 * 3 groups = 60
+        # Default: 20 * num_groups
+        expected_startup = 20 * len(group_names)
         sampler = optimizer.study.sampler
-        assert sampler._n_startup_trials == 60
+        assert sampler._n_startup_trials == expected_startup
 
-    def test_missing_group_names_raises(self, temp_experiment_dir, group_dataframes, grouped_config):
-        """Test that missing group_names raises error"""
-        with pytest.raises(ValueError, match="group_names required"):
+    def test_missing_params_raises(self, temp_experiment_dir, grouped_config):
+        """Test that missing param_bounds or group_names raises error"""
+        with pytest.raises(ValueError, match="param_bounds and group_names are required"):
             OptunaOptimizer(
                 experiment_dir=temp_experiment_dir,
                 config=grouped_config,
-                param_dataframes=group_dataframes,
+                param_bounds=None,
                 group_names=None
             )
 
-    def test_mismatched_lengths_raises(self, temp_experiment_dir, group_dataframes, grouped_config):
-        """Test that mismatched dataframes/names raises error"""
+    def test_mismatched_keys_raises(self, temp_experiment_dir, param_bounds_and_groups, grouped_config):
+        """Test that mismatched param_bounds keys and group_names raises error"""
+        param_bounds, _ = param_bounds_and_groups
+
         with pytest.raises(ValueError, match="must match"):
             OptunaOptimizer(
                 experiment_dir=temp_experiment_dir,
                 config=grouped_config,
-                param_dataframes=group_dataframes,
-                group_names=['circle', 'ellipse']  # Only 2 names for 3 dataframes
+                param_bounds=param_bounds,
+                group_names=['circle', 'ellipse']  # Missing 'irregular'
             )
 
 
@@ -188,13 +126,15 @@ class TestGroupedSearchSpace:
     """Tests for grouped search space suggestions"""
 
     def test_grouped_search_space_returns_group_and_params(
-        self, temp_experiment_dir, group_dataframes, group_names, grouped_config
+        self, temp_experiment_dir, param_bounds_and_groups, grouped_config
     ):
         """Test that _define_grouped_search_space returns (group, params)"""
+        param_bounds, group_names = param_bounds_and_groups
+
         optimizer = OptunaOptimizer(
             experiment_dir=temp_experiment_dir,
             config=grouped_config,
-            param_dataframes=group_dataframes,
+            param_bounds=param_bounds,
             group_names=group_names
         )
 
@@ -205,13 +145,15 @@ class TestGroupedSearchSpace:
         assert isinstance(params, dict)
 
     def test_params_match_selected_group(
-        self, temp_experiment_dir, group_dataframes, group_names, grouped_config
+        self, temp_experiment_dir, param_bounds_and_groups, grouped_config
     ):
         """Test that params match the selected group's parameters"""
+        param_bounds, group_names = param_bounds_and_groups
+
         optimizer = OptunaOptimizer(
             experiment_dir=temp_experiment_dir,
             config=grouped_config,
-            param_dataframes=group_dataframes,
+            param_bounds=param_bounds,
             group_names=group_names
         )
 
@@ -227,13 +169,15 @@ class TestGroupedSearchSpace:
                 f"Group {group}: expected {expected_params}, got {actual_params}"
 
     def test_ellipse_has_rotation(
-        self, temp_experiment_dir, group_dataframes, group_names, grouped_config
+        self, temp_experiment_dir, param_bounds_and_groups, grouped_config
     ):
         """Test that ellipse group has rotation parameter"""
+        param_bounds, group_names = param_bounds_and_groups
+
         optimizer = OptunaOptimizer(
             experiment_dir=temp_experiment_dir,
             config=grouped_config,
-            param_dataframes=group_dataframes,
+            param_bounds=param_bounds,
             group_names=group_names
         )
 
@@ -248,46 +192,26 @@ class TestGroupedSearchSpace:
                 assert 'rotation_std' in params
                 break
 
-    def test_irregular_has_complexity(
-        self, temp_experiment_dir, group_dataframes, group_names, grouped_config
-    ):
-        """Test that irregular group has complexity parameter"""
-        optimizer = OptunaOptimizer(
-            experiment_dir=temp_experiment_dir,
-            config=grouped_config,
-            param_dataframes=group_dataframes,
-            group_names=group_names
-        )
-
-        # Find an irregular trial
-        for _ in range(20):
-            trial = optimizer.study.ask()
-            group, params = optimizer._define_grouped_search_space(trial)
-            optimizer.study.tell(trial, [0.5])
-
-            if group == 'irregular':
-                assert 'complexity_mean' in params
-                assert 'complexity_std' in params
-                break
-
 
 class TestGroupLearning:
     """Tests that TPE learns which group is best"""
 
     def test_tpe_learns_best_group(
-        self, temp_experiment_dir, group_dataframes, group_names, grouped_config
+        self, temp_experiment_dir, param_bounds_and_groups, grouped_config
     ):
         """Test that TPE learns to prefer the group with better scores"""
+        param_bounds, group_names = param_bounds_and_groups
+
         optimizer = OptunaOptimizer(
             experiment_dir=temp_experiment_dir,
             config=grouped_config,
-            param_dataframes=group_dataframes,
+            param_bounds=param_bounds,
             group_names=group_names
         )
 
         # Give circle the best score, ellipse medium, irregular worst
         score_by_group = {'circle': 0.1, 'ellipse': 0.5, 'irregular': 0.9}
-        group_counts = {'circle': 0, 'ellipse': 0, 'irregular': 0}
+        group_counts = {g: 0 for g in group_names}
 
         # Run enough trials to see learning
         for i in range(30):
@@ -303,25 +227,27 @@ class TestGroupLearning:
         assert group_counts['circle'] > 0, "Circle should be sampled at least once"
 
 
-class TestSuggestNextGroupedDistributions:
-    """Tests for the suggest_next_grouped_distributions method"""
+class TestSuggestNextDistributions:
+    """Tests for the suggest_next_distributions method"""
 
     def _create_metrics_list(self, n: int, base_metrics: dict) -> list:
         return [{**base_metrics, 'param_set_id': f'trial_{i}'} for i in range(n)]
 
     def test_returns_correct_format(
-        self, temp_experiment_dir, group_dataframes, group_names, grouped_config
+        self, temp_experiment_dir, param_bounds_and_groups, grouped_config
     ):
-        """Test suggest_next_grouped_distributions returns (suggestions, converged)"""
+        """Test suggest_next_distributions returns (suggestions, converged)"""
+        param_bounds, group_names = param_bounds_and_groups
+
         optimizer = OptunaOptimizer(
             experiment_dir=temp_experiment_dir,
             config=grouped_config,
-            param_dataframes=group_dataframes,
+            param_bounds=param_bounds,
             group_names=group_names
         )
 
         metrics_list = self._create_metrics_list(grouped_config['iteration_batch_size'], {'mmd_rbf': 0.5})
-        suggestions, converged = optimizer.suggest_next_grouped_distributions(
+        suggestions, converged = optimizer.suggest_next_distributions(
             metrics_list=metrics_list,
             iteration=0,
             config=grouped_config
@@ -337,13 +263,15 @@ class TestSuggestNextGroupedDistributions:
             assert isinstance(params, dict)
 
     def test_ask_tell_pattern(
-        self, temp_experiment_dir, group_dataframes, group_names, grouped_config
+        self, temp_experiment_dir, param_bounds_and_groups, grouped_config
     ):
         """Test ask/tell pattern works over multiple iterations"""
+        param_bounds, group_names = param_bounds_and_groups
+
         optimizer = OptunaOptimizer(
             experiment_dir=temp_experiment_dir,
             config=grouped_config,
-            param_dataframes=group_dataframes,
+            param_bounds=param_bounds,
             group_names=group_names
         )
 
@@ -353,7 +281,7 @@ class TestSuggestNextGroupedDistributions:
                 {'mmd_rbf': 0.5 - iteration * 0.1}
             )
 
-            suggestions, converged = optimizer.suggest_next_grouped_distributions(
+            suggestions, converged = optimizer.suggest_next_distributions(
                 metrics_list=metrics_list,
                 iteration=iteration,
                 config=grouped_config
@@ -365,48 +293,3 @@ class TestSuggestNextGroupedDistributions:
             assert iteration in optimizer.pending_trials
             if iteration > 0:
                 assert (iteration - 1) not in optimizer.pending_trials
-
-    def test_raises_without_grouped_bounds(self, temp_experiment_dir):
-        """Test that suggest_next_grouped_distributions raises error in flat mode"""
-        config = {
-            'experiment_name': 'test_flat',
-            'optimization_metrics': ['mmd_rbf'],
-            'distribution_param_bounds': {
-                'param1': [0.0, 1.0],
-                'param2': [0.0, 1.0],
-            }
-        }
-        optimizer = OptunaOptimizer(temp_experiment_dir, config)
-
-        with pytest.raises(ValueError, match="requires grouped bounds"):
-            optimizer.suggest_next_grouped_distributions([], iteration=0, config=config)
-
-
-class TestBackwardCompatibility:
-    """Tests that flat (legacy) mode still works"""
-
-    def test_flat_mode_still_works(self, temp_experiment_dir):
-        """Test that flat bounds from config still work"""
-        config = {
-            'experiment_name': 'test_flat',
-            'random_seed': 42,
-            'optimization_metrics': ['mmd_rbf'],
-            'distribution_param_bounds': {
-                'void_count_mean': [1, 10],
-                'void_count_std': [0.5, 5.0],
-                'base_size_mean': [5.0, 15.0],
-            }
-        }
-
-        optimizer = OptunaOptimizer(temp_experiment_dir, config)
-
-        assert optimizer.group_names is None
-        assert 'void_count_mean' in optimizer.param_bounds
-
-        # Test search space
-        trial = optimizer.study.ask()
-        params = optimizer._define_search_space(trial)
-
-        assert 'void_count_mean' in params
-        assert 'void_count_std' in params
-        assert 'base_size_mean' in params

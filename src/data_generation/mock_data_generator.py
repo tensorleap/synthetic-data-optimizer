@@ -22,7 +22,7 @@ class MockDataGenerator:
     Each shape group has DIFFERENT distribution parameters:
     - circle: No rotation (circles are rotation-invariant)
     - ellipse: Has rotation_mean, rotation_std
-    - irregular: No rotation, has complexity_mean, complexity_std instead
+    - irregular: No rotation (like circle)
 
     The DataFrame columns are distribution parameters (what Optuna optimizes),
     with _mean and _std suffixes for continuous parameters.
@@ -49,10 +49,9 @@ class MockDataGenerator:
             'position_spread': {'mean_bounds': [0.1, 0.7], 'std_bounds': [0.05, 0.25]},
         },
         'irregular': {
-            # Irregular shapes have complexity instead of rotation
+            # Irregular shapes: no rotation (like circle)
             'void_count': {'mean_bounds': [1, 6], 'std_bounds': [0.5, 3.0]},
             'base_size': {'mean_bounds': [4.0, 12.0], 'std_bounds': [0.5, 4.0]},
-            'complexity': {'mean_bounds': [5, 12], 'std_bounds': [1.0, 3.0]},
             'center_x': {'mean_bounds': [0.25, 0.75], 'std_bounds': [0.05, 0.2]},
             'center_y': {'mean_bounds': [0.25, 0.75], 'std_bounds': [0.05, 0.2]},
             'position_spread': {'mean_bounds': [0.05, 0.6], 'std_bounds': [0.05, 0.2]},
@@ -360,8 +359,6 @@ class MockDataGenerator:
                     value = np.clip(value, 0.05, 0.95)
                 elif param_base == 'position_spread':
                     value = np.clip(value, 0.01, 0.99)
-                elif param_base == 'complexity':
-                    value = int(max(3, value))
 
                 params[param_base] = value
 
@@ -415,8 +412,6 @@ class MockDataGenerator:
                     value = np.clip(value, 0.05, 0.95)
                 elif param_base == 'position_spread':
                     value = np.clip(value, 0.01, 0.99)
-                elif param_base == 'complexity':
-                    value = int(max(3, value))
 
                 params[param_base] = value
 

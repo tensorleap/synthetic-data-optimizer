@@ -89,7 +89,7 @@ def infer_conditional_bounds(
         },
         'irregular': {
             'void_count': [1, 8],
-            'complexity': [5, 12],  # Only irregular has complexity
+            'base_size': [4.0, 12.0],
             ...
         }
     }
@@ -166,6 +166,40 @@ def print_bounds(bounds: Dict):
     """Pretty print the inferred bounds for inspection."""
     print("\nInferred parameter bounds:\n")
     print(yaml.dump(bounds, default_flow_style=False, sort_keys=False))
+
+
+def get_param_bounds() -> tuple[Dict[str, Dict], List[str]]:
+    """
+    Get parameter bounds and group names for the optimizer.
+
+    Returns:
+        param_bounds: Dict mapping group names to their parameter bounds
+        group_names: List of group names
+
+    # TODO: Replace mock data generator with reading from disk.
+    # In production, this should read CSV/parquet files per group from a data directory.
+    # Example future implementation:
+    #     data_dir = Path("data/param_samples")
+    #     group_names = ['circle', 'ellipse', 'irregular']
+    #     dataframes = [pd.read_csv(data_dir / f"{g}_params.csv") for g in group_names]
+    #     return infer_conditional_bounds(dataframes, group_names), group_names
+    """
+    from ..data_generation.mock_data_generator import MockDataGenerator
+
+    # Generate mock data to infer bounds from
+    generator = MockDataGenerator(use_real_embeddings=False)
+    _, _, synthetic_params_groups = generator.generate_conditional_groups(
+        n_distributions_per_group=100,
+        n_samples_per_distribution=1,
+        seed=42
+    )
+
+    group_names = list(MockDataGenerator.DEFAULT_GROUP_SPECS.keys())
+
+    # Infer bounds from the generated DataFrames
+    param_bounds = infer_conditional_bounds(synthetic_params_groups, group_names)
+
+    return param_bounds, group_names
 
 
 if __name__ == "__main__":

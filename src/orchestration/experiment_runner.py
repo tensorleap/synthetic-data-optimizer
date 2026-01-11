@@ -13,6 +13,7 @@ from ..embedding.dinov2_embedder import DinoV2Embedder
 from ..embedding.pca_projector import PCAProjector
 from ..optimization.metrics import compute_all_metrics, compute_per_param_set_metrics
 from ..optimization.optuna_optimizer import OptunaOptimizer
+from ..utils.bounds_inference import get_param_bounds
 from ..visualization.experiment_reporter import ExperimentReporter
 from .iteration_manager import IterationManager
 
@@ -43,10 +44,15 @@ class ExperimentRunner:
         # Iteration manager
         self.iteration_manager = IterationManager(Path(self.config['experiment_dir']))
 
+        # Get parameter bounds from data
+        param_bounds, group_names = get_param_bounds()
+
         # Optuna optimizer
         self.optimizer = OptunaOptimizer(
             experiment_dir=Path(self.config['experiment_dir']),
-            config=self.config
+            config=self.config,
+            param_bounds=param_bounds,
+            group_names=group_names
         )
 
         # Experiment reporter for visualizations
@@ -291,14 +297,12 @@ class ExperimentRunner:
         # Compute average metrics for display
         avg_metrics = {
             'mmd_rbf': np.mean([m['mmd_rbf'] for m in metrics_list]),
-            'wasserstein': np.mean([m['wasserstein'] for m in metrics_list]),
             'mean_nn_distance': np.mean([m['mean_nn_distance'] for m in metrics_list]),
             'coverage': np.mean([m['coverage'] for m in metrics_list])
         }
 
         print(f"\n  Average Synthetic vs Real (across {n_distributions} distributions):")
         print(f"    MMD (RBF): {avg_metrics['mmd_rbf']:.4f}")
-        print(f"    Wasserstein: {avg_metrics['wasserstein']:.4f}")
         print(f"    Mean NN distance: {avg_metrics['mean_nn_distance']:.4f}")
         print(f"    Coverage: {avg_metrics['coverage']:.4f}")
 
