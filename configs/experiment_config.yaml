@@ -1,6 +1,6 @@
 # Experiment setup
-experiment_name: "infineon_void_poc"
-experiment_dir: "data/experiments/infineon_void_poc"
+experiment_name: "test_grouped_params"
+experiment_dir: "data/experiments/test_grouped_params"
 
 # Base data
 base_image_dir: "data/base_chips"  # 5 NoVoids images

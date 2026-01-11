@@ -346,8 +346,7 @@ class ExperimentRunner:
         import json
         import optuna
 
-        iter_dir = self.iteration_manager.experiment_dir / f"iteration_{iteration:03d}"
-        iter_dir.mkdir(parents=True, exist_ok=True)
+        iter_dir = self.iteration_manager.iterations_dir / f"iter_{iteration:03d}"
 
         # Save this iteration's distribution parameters
         current_distributions = []
