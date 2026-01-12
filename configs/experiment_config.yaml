@@ -1,38 +1,19 @@
-# Experiment setup
-experiment_name: "test_grouped_params"
+# Production experiment configuration
+# Contains settings that will be used in production on Tensorleap
+# Does NOT include local data generation settings (see local_experiment_config.yaml)
+# Note: Model/embedding settings not needed - embeddings come directly from Tensorleap
+
+# Experiment identification
+experiment_name: "void_optimization"
 experiments_base_dir: "data/experiments"  # experiment_dir is auto-derived from experiment_name
-
-# Base data
-base_image_dir: "data/base_chips"  # 5 NoVoids images
-
-# Model settings
-dino_model: "dinov2_vitb14"        # 768-dim embeddings
-pca_embedding_dim: 400             # reduce to 400-dim for optimization
-pca_visualization_dim: 2           # further reduce to 2D for visualization
 
 # Random seed (one seed to rule them all)
 random_seed: 42
-
-# Dataset sizes
-real:
-  param_sets: 10
-  replications: 5
-
-close:
-  param_sets: 10
-  replications: 50
-
-far:
-  param_sets: 10
-  replications: 50
 
 # Iteration settings
 iteration_batch_size: 10      # param sets per iteration
 replications_per_iteration: 20
 max_iterations: 10
-
-# Initial condition for optimization (iteration 0)
-initial_condition: 'far'  # 'close' or 'far' - determines starting synthetic distribution
 
 # Parameter precision (decimal places for rounding)
 # Controls granularity of parameter space for optimization
@@ -45,102 +26,6 @@ param_precision:
   center_y: 2           # round(0.4567, 2) = 0.46  (step size: 0.01)
   position_spread: 2    # round(0.4567, 2) = 0.46  (step size: 0.01)
 
-# Distribution parameter bounds (for optimizer to suggest distribution moments)
-# These bounds define the search space for distribution parameters
-# Flat structure: each parameter is a separate key with [min, max] or list of categories
-distribution_param_bounds:
-  void_shape: [circle, ellipse, irregular]  # Categorical
-  void_count_mean: [1, 10]
-  void_count_std: [0.5, 5.0]
-  base_size_mean: [5.0, 15.0]
-  base_size_std: [0.5, 5.0]
-  rotation_mean: [0.0, 360.0]
-  rotation_std: [10.0, 180.0]
-  center_x_mean: [0.2, 0.8]
-  center_x_std: [0.05, 0.3]
-  center_y_mean: [0.2, 0.8]
-  center_y_std: [0.05, 0.3]
-  position_spread_mean: [0.1, 0.8]
-  position_spread_std: [0.05, 0.3]
-
-# Parameter distributions (initial guesses, tune empirically)
-# Note: Sampling will clip to distribution_param_bounds defined above
-param_distributions:
-  real:
-    void_shape:
-      probabilities:
-        circle: 0.2
-        ellipse: 0.5
-        irregular: 0.3
-    void_count:
-      mean: 4
-      std: 3
-    base_size:
-      mean: 10
-      std: 3
-    rotation:
-      mean: 180
-      std: 90
-    center_x:
-      mean: 0.5
-      std: 0.15
-    center_y:
-      mean: 0.5
-      std: 0.15
-    position_spread:
-      mean: 0.5
-      std: 0.15
-
-  close:
-    void_shape:
-      probabilities:
-        circle: 0.25
-        ellipse: 0.45
-        irregular: 0.3
-    void_count:
-      mean: 10
-      std: 3
-    base_size:
-      mean: 18
-      std: 5
-    rotation:
-      mean: 180
-      std: 90
-    center_x:
-      mean: 0.5
-      std: 0.15
-    center_y:
-      mean: 0.5
-      std: 0.15
-    position_spread:
-      mean: 0.55
-      std: 0.15
-
-  far:
-    void_shape:
-      probabilities:
-        circle: 0.1
-        ellipse: 0.1
-        irregular: 0.8
-    void_count:
-      mean: 20
-      std: 3
-    base_size:
-      mean: 4
-      std: 2
-    rotation:
-      mean: 45
-      std: 20
-    center_x:
-      mean: 0.7
-      std: 0.15
-    center_y:
-      mean: 0.1
-      std: 0.15
-    position_spread:
-      mean: 0.95
-      std: 0.05
-
 # Optimization metrics
 # List of metrics to optimize (order matters - first metric is primary)
 # Available metrics: mmd_rbf, mmd_linear, wasserstein, mean_nn_distance, median_nn_distance
@@ -152,8 +37,10 @@ optimization_metrics:
 convergence_threshold: 0.05  # distribution similarity metric
 early_stop_patience: 3       # stop if no improvement for N iterations
 
+# Optimizer settings
+optimizer:
+  n_startup_trials: 60       # 20 per group (circle, ellipse, irregular)
+  multivariate: true
+
 # Output settings
 top_n_distributions: 10      # number of top distributions to save per iteration
-
-# Optimization (placeholder)
-acquisition_function: "ucb"  # or "ei", "pi"

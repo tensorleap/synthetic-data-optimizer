@@ -229,7 +229,7 @@ class OptunaOptimizer:
         Works uniformly for all iterations (initial external data or optimizer-suggested).
 
         Args:
-            current_distributions: List of (group_name, params_dict) tuples that were evaluated
+
             metrics_list: List of metric dicts corresponding to current_distributions
             config: Experiment configuration dict
 

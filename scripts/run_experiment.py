@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import List, Tuple, Dict
 
 from src.orchestration.experiment_runner import ExperimentRunner
+from src.utils.bounds_inference import get_param_bounds
 
 
 def load_distributions(path: Path) -> List[Tuple[str, Dict]]:
@@ -83,8 +84,11 @@ def run_iteration(
     print(f"PRODUCTION EXPERIMENT - Iteration {iteration}")
     print("=" * 60)
 
-    # Initialize experiment runner
-    runner = ExperimentRunner(config_path)
+    # Get bounds from data files
+    param_bounds, group_names = get_param_bounds(data_dir)
+
+    # Initialize experiment runner with bounds from data
+    runner = ExperimentRunner(config_path, param_bounds=param_bounds, group_names=group_names)
 
     # Load real embeddings
     real_path = data_dir / "real_embeddings.npy"

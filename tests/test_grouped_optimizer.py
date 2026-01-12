@@ -230,13 +230,30 @@ class TestGroupLearning:
 class TestSuggestNextDistributions:
     """Tests for the suggest_next_distributions method"""
 
+    def _create_distributions(self, n: int, group_names: list, param_bounds: dict) -> list:
+        """Create mock distributions within bounds for testing."""
+        distributions = []
+        for i in range(n):
+            group = group_names[i % len(group_names)]
+            bounds = param_bounds[group]
+
+            # Create params within bounds using midpoint values
+            params = {}
+            for param_name, bound in bounds.items():
+                if isinstance(bound, list) and len(bound) == 2:
+                    # Use midpoint of bounds
+                    params[param_name] = (bound[0] + bound[1]) / 2
+
+            distributions.append((group, params))
+        return distributions
+
     def _create_metrics_list(self, n: int, base_metrics: dict) -> list:
-        return [{**base_metrics, 'param_set_id': f'trial_{i}'} for i in range(n)]
+        return [{**base_metrics, 'distribution_id': i} for i in range(n)]
 
     def test_returns_correct_format(
         self, temp_experiment_dir, param_bounds_and_groups, grouped_config
     ):
-        """Test suggest_next_distributions returns (suggestions, converged)"""
+        """Test suggest_next_distributions returns suggestions list"""
         param_bounds, group_names = param_bounds_and_groups
 
         optimizer = OptunaOptimizer(
@@ -246,26 +263,28 @@ class TestSuggestNextDistributions:
             group_names=group_names
         )
 
-        metrics_list = self._create_metrics_list(grouped_config['iteration_batch_size'], {'mmd_rbf': 0.5})
-        suggestions, converged = optimizer.suggest_next_distributions(
+        n = grouped_config['iteration_batch_size']
+        current_distributions = self._create_distributions(n, group_names, param_bounds)
+        metrics_list = self._create_metrics_list(n, {'mmd_rbf': 0.5})
+
+        suggestions = optimizer.suggest_next_distributions(
+            current_distributions=current_distributions,
             metrics_list=metrics_list,
-            iteration=0,
             config=grouped_config
         )
 
         assert isinstance(suggestions, list)
         assert len(suggestions) == grouped_config['iteration_batch_size']
-        assert isinstance(converged, bool)
 
         # Each suggestion is (group_name, params_dict)
         for group, params in suggestions:
             assert group in group_names
             assert isinstance(params, dict)
 
-    def test_ask_tell_pattern(
+    def test_add_trial_pattern(
         self, temp_experiment_dir, param_bounds_and_groups, grouped_config
     ):
-        """Test ask/tell pattern works over multiple iterations"""
+        """Test add_trial pattern works over multiple iterations"""
         param_bounds, group_names = param_bounds_and_groups
 
         optimizer = OptunaOptimizer(
@@ -275,21 +294,24 @@ class TestSuggestNextDistributions:
             group_names=group_names
         )
 
-        for iteration in range(3):
-            metrics_list = self._create_metrics_list(
-                grouped_config['iteration_batch_size'],
-                {'mmd_rbf': 0.5 - iteration * 0.1}
-            )
+        n = grouped_config['iteration_batch_size']
+        current_distributions = self._create_distributions(n, group_names, param_bounds)
 
-            suggestions, converged = optimizer.suggest_next_distributions(
+        for iteration in range(3):
+            metrics_list = self._create_metrics_list(n, {'mmd_rbf': 0.5 - iteration * 0.1})
+
+            suggestions = optimizer.suggest_next_distributions(
+                current_distributions=current_distributions,
                 metrics_list=metrics_list,
-                iteration=iteration,
                 config=grouped_config
             )
 
             assert len(suggestions) == grouped_config['iteration_batch_size']
 
-            # Verify pending trials tracking
-            assert iteration in optimizer.pending_trials
-            if iteration > 0:
-                assert (iteration - 1) not in optimizer.pending_trials
+            # Use suggestions as next distributions
+            current_distributions = suggestions
+
+        # Verify trials were registered (3 iterations * n distributions)
+        import optuna
+        completed = [t for t in optimizer.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        assert len(completed) == 3 * n

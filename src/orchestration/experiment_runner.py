@@ -24,12 +24,19 @@ class ExperimentRunner:
     Receives data from external source, computes metrics, updates optimizer.
     """
 
-    def __init__(self, config_path: Path):
+    def __init__(
+        self,
+        config_path: Path,
+        param_bounds: Dict[str, Dict] = None,
+        group_names: List[str] = None
+    ):
         """
         Initialize experiment runner.
 
         Args:
             config_path: Path to experiment configuration YAML file
+            param_bounds: Optional parameter bounds dict. If None, inferred from data.
+            group_names: Optional list of group names. Required if param_bounds is provided.
         """
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
@@ -39,8 +46,9 @@ class ExperimentRunner:
         # Iteration manager
         self.iteration_manager = IterationManager(Path(self.config['experiment_dir']))
 
-        # Get parameter bounds from data
-        param_bounds, group_names = get_param_bounds()
+        # Get parameter bounds from data (or use provided)
+        if param_bounds is None:
+            param_bounds, group_names = get_param_bounds()
 
         # Optuna optimizer
         self.optimizer = OptunaOptimizer(

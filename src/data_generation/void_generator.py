@@ -293,15 +293,15 @@ class VoidGenerator:
                 img, metadata = self.generate_single(params, seed)
 
                 # Add tracking IDs
-                # Use distribution_id if present (for distribution optimization), otherwise use index
+                # Use distribution_id if present, otherwise use index
                 if 'distribution_id' in params:
-                    param_set_id = f"dist_{params['distribution_id']:03d}"
+                    distribution_id = params['distribution_id']
                 else:
-                    param_set_id = f"ps_{param_idx:03d}"
+                    distribution_id = param_idx
 
-                metadata['param_set_id'] = param_set_id
+                metadata['distribution_id'] = distribution_id
                 metadata['replication_id'] = rep
-                metadata['sample_id'] = f"{param_set_id}_rep{rep}"
+                metadata['sample_id'] = f"dist_{distribution_id:03d}_rep{rep}"
 
                 images.append(img)
                 metadata_list.append(metadata)

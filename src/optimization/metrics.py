@@ -245,51 +245,51 @@ def compute_per_param_set_metrics(
     n_param_sets: int
 ) -> List[Dict[str, float]]:
     """
-    Compute metrics for each parameter set separately.
+    Compute metrics for each distribution separately.
 
-    Each parameter set has multiple replications due to stochastic parameters.
-    This function groups synthetic samples by param_set_id and computes metrics
-    for each parameter set's distribution (averaged over its replications).
+    Each distribution has multiple replications due to stochastic parameters.
+    This function groups synthetic samples by distribution_id and computes metrics
+    for each distribution (averaged over its replications).
 
     Args:
         synthetic_embeddings: (N, D) embeddings of all synthetic samples
-        synthetic_metadata: List of metadata dicts with 'param_set_id' for each sample
+        synthetic_metadata: List of metadata dicts with 'distribution_id' for each sample
         real_embeddings: (M, D) embeddings of real samples
-        n_param_sets: Number of parameter sets
+        n_param_sets: Number of distributions
 
     Returns:
-        List of metric dicts, one per parameter set
+        List of metric dicts, one per distribution
     """
-    # Group embeddings by param_set_id
-    param_set_embeddings = {}
+    # Group embeddings by distribution_id
+    distribution_embeddings = {}
 
     for i, metadata in enumerate(synthetic_metadata):
-        param_set_id = metadata['param_set_id']
+        distribution_id = metadata['distribution_id']
 
-        if param_set_id not in param_set_embeddings:
-            param_set_embeddings[param_set_id] = []
+        if distribution_id not in distribution_embeddings:
+            distribution_embeddings[distribution_id] = []
 
-        param_set_embeddings[param_set_id].append(synthetic_embeddings[i])
+        distribution_embeddings[distribution_id].append(synthetic_embeddings[i])
 
-    # Verify we have the expected number of parameter sets
-    if len(param_set_embeddings) != n_param_sets:
+    # Verify we have the expected number of distributions
+    if len(distribution_embeddings) != n_param_sets:
         raise ValueError(
-            f"Expected {n_param_sets} parameter sets, but found {len(param_set_embeddings)} "
-            f"in metadata. Param sets found: {sorted(param_set_embeddings.keys())}"
+            f"Expected {n_param_sets} distributions, but found {len(distribution_embeddings)} "
+            f"in metadata. Distribution IDs found: {sorted(distribution_embeddings.keys())}"
         )
 
-    # Compute metrics for each parameter set
+    # Compute metrics for each distribution
     metrics_list = []
 
-    for param_set_id in sorted(param_set_embeddings.keys()):
-        # Get embeddings for this parameter set (all replications)
-        embeddings = np.array(param_set_embeddings[param_set_id])
+    for distribution_id in sorted(distribution_embeddings.keys()):
+        # Get embeddings for this distribution (all replications)
+        embeddings = np.array(distribution_embeddings[distribution_id])
 
-        # Compute metrics for this parameter set vs real distribution
+        # Compute metrics for this distribution vs real distribution
         metrics = compute_all_metrics(embeddings, real_embeddings)
 
-        # Add param_set_id for tracking
-        metrics['param_set_id'] = param_set_id
+        # Add distribution_id for tracking
+        metrics['distribution_id'] = distribution_id
 
         metrics_list.append(metrics)
 
