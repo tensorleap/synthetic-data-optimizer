@@ -94,7 +94,7 @@ def run_optimizer_iteration(
     metadata_by_shape: List['pd.DataFrame'],
     group_names: List[str],
     runner: ExperimentRunner = None
-) -> Tuple[List[Tuple[str, Dict]], ExperimentRunner]:
+) -> List[Tuple[str, Dict]]:
     """
     High-level function: run one optimization iteration from client data format.
 
@@ -176,7 +176,7 @@ def run_optimizer_iteration(
         synthetic_metadata=metadata_df.to_dict('records')
     )
 
-    return suggestions, runner
+    return suggestions
 
 
 if __name__ == '__main__':
@@ -264,7 +264,7 @@ if __name__ == '__main__':
     # ================================================================
 
     print(f"\n[Running Optimizer] Using high-level API...")
-    suggestions, runner = run_optimizer_iteration(
+    suggestions = run_optimizer_iteration(
         config_path=config_path,
         real_embeddings=real_embeddings,
         embeddings_by_shape=[circle_embeddings, ellipse_embeddings, irregular_embeddings],
@@ -282,10 +282,5 @@ if __name__ == '__main__':
     print(f"\nReceived {len(suggestions)} suggestions for next iteration")
     print(f"First suggestion ID: {suggestions[0][0]}")
     print(f"  Param keys: {len(suggestions[0][1])} total")
-
-    # Show shape probabilities from first suggestion
-    first_suggestion_params = suggestions[0][1]
-    shape_logits = {k: v for k, v in first_suggestion_params.items() if k.startswith('shape_logit_')}
-    print(f"  Shape logits: {shape_logits}")
 
 
