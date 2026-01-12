@@ -224,6 +224,230 @@ def get_param_bounds(data_dir: Optional[Union[str, Path]] = None) -> tuple[Dict[
     return param_bounds, group_names
 
 
+def infer_bounds_from_directories(
+    directories: List[Union[str, Path]],
+    group_names: List[str]
+) -> Dict[str, Dict]:
+    """
+    Infer parameter bounds from ALL data across ALL directories.
+
+    Combines all CSVs for each shape across all directories to get global bounds.
+
+    Args:
+        directories: List of directory paths containing per-shape CSVs
+        group_names: Shape names (e.g., ['circle', 'ellipse', 'irregular'])
+
+    Returns:
+        param_bounds: {group_name: {param_name: [min, max]}}
+    """
+    # Collect all dataframes per group across all directories
+    all_dfs = {group: [] for group in group_names}
+
+    for directory in directories:
+        directory = Path(directory)
+        for group_name in group_names:
+            csv_path = directory / f"{group_name}.csv"
+            if csv_path.exists():
+                df = pd.read_csv(csv_path)
+                if not df.empty:
+                    all_dfs[group_name].append(df)
+
+    # Infer bounds from combined data for each group
+    param_bounds = {}
+    for group_name in group_names:
+        if all_dfs[group_name]:
+            combined_df = pd.concat(all_dfs[group_name], ignore_index=True)
+            param_bounds[group_name] = infer_bounds_from_dataframe(combined_df)
+        else:
+            param_bounds[group_name] = {}
+
+    return param_bounds
+
+
+def load_distribution_from_directory(
+    directory: Union[str, Path],
+    group_names: List[str],
+    param_bounds: Dict[str, Dict]
+) -> tuple[str, Dict]:
+    """
+    Load a single distribution from a directory containing per-shape CSVs.
+
+    Each directory = ONE trial. Sample counts determine shape probabilities.
+    Distribution params are inferred from each shape's CSV mean values.
+
+    Args:
+        directory: Path to directory with per-shape CSVs
+        group_names: Shape names
+        param_bounds: Pre-computed bounds (from infer_bounds_from_directories)
+
+    Returns:
+        (dist_id, params_dict) tuple in joint optimizer format
+    """
+    from ..optimization.optuna_optimizer import OptunaOptimizer
+
+    directory = Path(directory)
+    dist_id = directory.name
+
+    # Load CSVs and count samples
+    sample_counts = {}
+    dataframes = {}
+
+    for group_name in group_names:
+        csv_path = directory / f"{group_name}.csv"
+        if csv_path.exists():
+            df = pd.read_csv(csv_path)
+            sample_counts[group_name] = len(df)
+            dataframes[group_name] = df
+        else:
+            sample_counts[group_name] = 0
+            dataframes[group_name] = pd.DataFrame()
+
+    # Convert sample counts to logits
+    logits = OptunaOptimizer.sample_counts_to_logits(sample_counts)
+
+    # Build params dict: logits + all shape params
+    params = dict(logits)
+
+    for group_name in group_names:
+        df = dataframes[group_name]
+        group_bounds = param_bounds.get(group_name, {})
+
+        for param_name in group_bounds.keys():
+            optuna_key = f'{group_name}__{param_name}'
+
+            if not df.empty and param_name in df.columns:
+                # Use mean of samples as distribution parameter
+                params[optuna_key] = float(df[param_name].mean())
+            else:
+                # Fallback to midpoint of bounds
+                bounds = group_bounds[param_name]
+                if isinstance(bounds, list) and len(bounds) == 2:
+                    params[optuna_key] = (bounds[0] + bounds[1]) / 2
+                else:
+                    params[optuna_key] = bounds[0] if bounds else 0.0
+
+    return (dist_id, params)
+
+
+def load_distributions_from_directories(
+    directories: List[Union[str, Path]],
+    group_names: List[str]
+) -> tuple[List[tuple[str, Dict]], Dict[str, Dict]]:
+    """
+    Load N distributions from N directories for initial optimizer input.
+
+    Each directory = one trial. All N directories = N trials for one iteration.
+
+    Steps:
+    1. Infer bounds from ALL data across ALL directories (global bounds)
+    2. Load each directory as a distribution using those bounds
+
+    Args:
+        directories: List of N directory paths
+        group_names: Shape names (e.g., ['circle', 'ellipse', 'irregular'])
+
+    Returns:
+        distributions: List of (dist_id, params_dict) tuples
+        param_bounds: Global bounds inferred from all data
+    """
+    # Step 1: Infer bounds from ALL data
+    param_bounds = infer_bounds_from_directories(directories, group_names)
+
+    # Step 2: Load each directory as a distribution
+    distributions = []
+    for directory in directories:
+        dist = load_distribution_from_directory(directory, group_names, param_bounds)
+        distributions.append(dist)
+
+    return distributions, param_bounds
+
+
+def infer_bounds_from_metadata(
+    metadata_df: pd.DataFrame,
+    group_names: List[str]
+) -> Dict[str, Dict]:
+    """
+    Infer parameter bounds from metadata DataFrame.
+
+    The metadata DataFrame has columns:
+    - distribution_id: int (groups samples by distribution)
+    - shape_logit_*: float (one per shape)
+    - {shape}__{param}_mean: float
+    - {shape}__{param}_std: float
+
+    All samples from the same distribution have identical param values.
+    Bounds are inferred from the range across all distributions.
+
+    Args:
+        metadata_df: DataFrame with distribution_id and all joint params as columns
+        group_names: List of shape names (e.g., ['circle', 'ellipse', 'irregular'])
+
+    Returns:
+        param_bounds: {group_name: {param_name: [min, max]}}
+    """
+    # Get unique distributions (one row per distribution)
+    unique_dists = metadata_df.drop_duplicates(subset='distribution_id')
+
+    # Build bounds by group
+    param_bounds = {}
+
+    for group_name in group_names:
+        group_bounds = {}
+
+        # Find all columns for this group
+        for col in unique_dists.columns:
+            if col.startswith(f'{group_name}__'):
+                # Extract param name
+                param_name = col[len(f'{group_name}__'):]
+
+                # Infer bounds from column values
+                values = unique_dists[col]
+                group_bounds[param_name] = [float(values.min()), float(values.max())]
+
+        param_bounds[group_name] = group_bounds
+
+    return param_bounds
+
+
+def load_distributions_from_metadata(
+    metadata_df: pd.DataFrame
+) -> List[tuple[str, Dict]]:
+    """
+    Extract distributions from metadata DataFrame.
+
+    The metadata DataFrame has columns:
+    - distribution_id: int (groups samples by distribution)
+    - shape_logit_*: float (one per shape)
+    - {shape}__{param}_mean: float
+    - {shape}__{param}_std: float
+
+    All samples from the same distribution have identical param values.
+
+    Args:
+        metadata_df: DataFrame with distribution_id and all joint params as columns
+
+    Returns:
+        List of (dist_id, params_dict) tuples in joint optimizer format
+    """
+    # Get unique distributions (one row per distribution)
+    unique_dists = metadata_df.drop_duplicates(subset='distribution_id').sort_values('distribution_id')
+
+    distributions = []
+
+    for _, row in unique_dists.iterrows():
+        dist_id = f"dist_{int(row['distribution_id'])}"
+
+        # Extract all param columns (everything except distribution_id)
+        params = {}
+        for col in row.index:
+            if col != 'distribution_id':
+                params[col] = float(row[col])
+
+        distributions.append((dist_id, params))
+
+    return distributions
+
+
 if __name__ == "__main__":
     # Example usage
     csv_path = Path(__file__).parent.parent.parent / "data" / "dummy_params.csv"

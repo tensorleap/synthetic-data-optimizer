@@ -260,11 +260,25 @@ def compute_per_param_set_metrics(
     Returns:
         List of metric dicts, one per distribution
     """
-    # Group embeddings by distribution_id
+    # Group embeddings by distribution_id (or param_set_id for backward compatibility)
     distribution_embeddings = {}
 
     for i, metadata in enumerate(synthetic_metadata):
-        distribution_id = metadata['distribution_id']
+        # Support both 'distribution_id' (local experiment) and 'param_set_id' (production)
+        if 'distribution_id' in metadata:
+            distribution_id = metadata['distribution_id']
+        elif 'param_set_id' in metadata:
+            # Extract numeric index from param_set_id like "dist_000"
+            param_set_id = metadata['param_set_id']
+            if param_set_id.startswith('dist_'):
+                try:
+                    distribution_id = int(param_set_id.split('_')[1])
+                except (ValueError, IndexError):
+                    distribution_id = param_set_id
+            else:
+                distribution_id = param_set_id
+        else:
+            raise KeyError(f"Metadata must contain 'distribution_id' or 'param_set_id'. Got: {metadata.keys()}")
 
         if distribution_id not in distribution_embeddings:
             distribution_embeddings[distribution_id] = []
