@@ -1,0 +1,158 @@
+# Local experiment configuration
+# Contains settings for local development and synthetic data generation
+# This file should NOT be used in production - it's for testing the optimization pipeline locally
+
+# Experiment identification
+experiment_name: "local_test_grouped_params"
+experiments_base_dir: "data/experiments"
+
+# Random seed
+random_seed: 42
+
+# Iteration settings (smaller values for local testing)
+iteration_batch_size: 8       # param sets per iteration
+replications_per_iteration: 10
+max_iterations: 5
+
+# Parameter precision (decimal places for rounding)
+param_precision:
+  base_size: 1
+  rotation: 1
+  center_x: 2
+  center_y: 2
+  position_spread: 2
+
+# Optimization metrics
+optimization_metrics:
+  - mmd_rbf
+  - mean_nn_distance
+
+# Convergence criteria
+convergence_threshold: 0.05
+early_stop_patience: 3
+
+# Optimizer settings
+optimizer:
+  n_startup_trials: 12        # 4 per group for faster local testing
+  multivariate: true
+
+# Output settings
+top_n_distributions: 5
+
+# Base data for local testing
+base_image_dir: "data/base_chips"  # 5 NoVoids images for local generation
+
+# Model settings (only needed for local testing - in prod embeddings come from Tensorleap)
+dino_model: "dinov2_vitb14"        # 768-dim embeddings
+pca_embedding_dim: 400             # reduce to 400-dim for optimization
+pca_visualization_dim: 2           # further reduce to 2D for visualization
+
+# Dataset sizes for local testing
+real:
+  param_sets: 10
+  replications: 5
+
+close:
+  param_sets: 10
+  replications: 50
+
+far:
+  param_sets: 10
+  replications: 50
+
+# Initial condition for optimization (iteration 0)
+initial_condition: 'far'  # 'close' or 'far' - determines starting synthetic distribution
+
+# Parameter distributions for synthetic data generation
+# These define how to sample parameters for each distribution type
+param_distributions:
+  real:
+    void_shape:
+      probabilities:
+        circle: 0.2
+        ellipse: 0.5
+        irregular: 0.3
+    void_count:
+      mean: 4
+      std: 3
+    base_size:
+      mean: 10
+      std: 3
+    rotation:
+      mean: 180
+      std: 90
+    center_x:
+      mean: 0.5
+      std: 0.15
+    center_y:
+      mean: 0.5
+      std: 0.15
+    position_spread:
+      mean: 0.5
+      std: 0.15
+
+  close:
+    void_shape:
+      probabilities:
+        circle: 0.25
+        ellipse: 0.45
+        irregular: 0.3
+    void_count:
+      mean: 10
+      std: 3
+    base_size:
+      mean: 18
+      std: 5
+    rotation:
+      mean: 180
+      std: 90
+    center_x:
+      mean: 0.5
+      std: 0.15
+    center_y:
+      mean: 0.5
+      std: 0.15
+    position_spread:
+      mean: 0.55
+      std: 0.15
+
+  far:
+    void_shape:
+      probabilities:
+        circle: 0.1
+        ellipse: 0.1
+        irregular: 0.8
+    void_count:
+      mean: 20
+      std: 3
+    base_size:
+      mean: 4
+      std: 2
+    rotation:
+      mean: 45
+      std: 20
+    center_x:
+      mean: 0.7
+      std: 0.15
+    center_y:
+      mean: 0.1
+      std: 0.15
+    position_spread:
+      mean: 0.95
+      std: 0.05
+
+# Legacy bounds (kept for reference, actual bounds are inferred from real data)
+distribution_param_bounds:
+  void_shape: [circle, ellipse, irregular]  # Categorical
+  void_count_mean: [1, 10]
+  void_count_std: [0.5, 5.0]
+  base_size_mean: [5.0, 15.0]
+  base_size_std: [0.5, 5.0]
+  rotation_mean: [0.0, 360.0]
+  rotation_std: [10.0, 180.0]
+  center_x_mean: [0.2, 0.8]
+  center_x_std: [0.05, 0.3]
+  center_y_mean: [0.2, 0.8]
+  center_y_std: [0.05, 0.3]
+  position_spread_mean: [0.1, 0.8]
+  position_spread_std: [0.05, 0.3]

@@ -71,11 +71,27 @@ class TestOptunaE2EIntegration:
     """End-to-end integration tests with full pipeline"""
 
     def _create_metrics_list(self, n_param_sets: int, base_metrics: dict) -> list:
-        """Helper to create metrics_list with param_set_id for each distribution"""
+        """Helper to create metrics_list with distribution_id for each distribution"""
         return [
-            {**base_metrics, 'param_set_id': f'dist_{i:03d}'}
+            {**base_metrics, 'distribution_id': i}
             for i in range(n_param_sets)
         ]
+
+    def _create_distributions(self, n: int, group_names: list, param_bounds: dict) -> list:
+        """Create mock distributions within bounds for testing."""
+        distributions = []
+        for i in range(n):
+            group = group_names[i % len(group_names)]
+            bounds = param_bounds[group]
+
+            # Create params within bounds using midpoint values
+            params = {}
+            for param_name, bound in bounds.items():
+                if isinstance(bound, list) and len(bound) == 2:
+                    params[param_name] = (bound[0] + bound[1]) / 2
+
+            distributions.append((group, params))
+        return distributions
 
     def test_optimizer_with_real_components(self, mini_config, temp_test_dir, param_bounds_and_groups):
         """Test OptunaOptimizer with real generator, embedder, and metrics"""
@@ -113,23 +129,27 @@ class TestOptunaE2EIntegration:
         # Run 2 optimization iterations
         iteration_results = []
 
-        for iteration in range(1, 3):
+        # Initialize with starting distributions for iteration 0
+        n_distributions = mini_config['iteration_batch_size']
+        current_distributions = self._create_distributions(n_distributions, group_names, param_bounds)
+
+        for iteration in range(2):
             print(f"\n[Test] === Iteration {iteration} ===")
 
-            # Get previous iteration data (or empty for iteration 1)
-            if iteration == 1:
-                # Create dummy metrics_list for iteration 0 (won't be used)
-                prev_metrics_list = self._create_metrics_list(
-                    len(real_params),
+            # Get metrics for current distributions
+            if iteration == 0:
+                # Create initial metrics_list
+                metrics_list = self._create_metrics_list(
+                    n_distributions,
                     compute_all_metrics(real_embeddings, real_embeddings)
                 )
             else:
-                prev_metrics_list = iteration_results[-1]['metrics_list']
+                metrics_list = iteration_results[-1]['metrics_list']
 
-            # Ask optimizer for next distributions
-            next_distributions, converged = optimizer.suggest_next_distributions(
-                metrics_list=prev_metrics_list,
-                iteration=iteration,
+            # Ask optimizer for next distributions (unified interface)
+            next_distributions = optimizer.suggest_next_distributions(
+                current_distributions=current_distributions,
+                metrics_list=metrics_list,
                 config=mini_config
             )
 
@@ -181,9 +201,11 @@ class TestOptunaE2EIntegration:
                 'params': next_params,
                 'embeddings': synthetic_embeddings,
                 'metrics': metrics,
-                'metrics_list': metrics_list,
-                'converged': converged
+                'metrics_list': metrics_list
             })
+
+            # Update current_distributions for next iteration
+            current_distributions = next_distributions
 
         # Verify basic integration
         assert len(iteration_results) == 2, "Should complete 2 iterations"
@@ -225,10 +247,11 @@ class TestOptunaE2EIntegration:
 
         print("[Test] ✓ End-to-end integration test passed!")
 
-    def test_ask_tell_pattern_e2e(self, mini_config, temp_test_dir, param_bounds_and_groups):
+    def test_add_trial_pattern_e2e(self, mini_config, temp_test_dir, param_bounds_and_groups):
         """
-        Test proper ask/tell pattern in end-to-end workflow.
-        Verifies that pending trials are properly tracked and completed.
+        Test add_trial pattern in end-to-end workflow.
+        Verifies that trials are properly registered via add_trial() and
+        the optimizer correctly suggests new distributions.
         """
         import numpy as np
         param_bounds, group_names = param_bounds_and_groups
@@ -256,97 +279,67 @@ class TestOptunaE2EIntegration:
         pca = PCAProjector(n_components=mini_config['pca_embedding_dim'])
         real_embeddings = pca.fit_transform(real_embeddings_full)
 
-        # Track pending trials state throughout experiment
-        pending_trials_history = []
+        # Track trial counts throughout experiment
+        trial_count_history = []
 
-        # Run 3 iterations and verify ask/tell pattern
-        prev_metrics_list = self._create_metrics_list(
-            len(real_params),
-            compute_all_metrics(real_embeddings, real_embeddings)
-        )
+        # Initialize with starting distributions
+        n_distributions = mini_config['iteration_batch_size']
+        current_distributions = self._create_distributions(n_distributions, group_names, param_bounds)
 
+        # Run 3 iterations and verify add_trial pattern
         for iteration in range(3):
             print(f"\n[E2E Test] === Iteration {iteration} ===")
 
-            # Get next distributions (triggers ask/tell)
-            next_distributions, converged = optimizer.suggest_next_distributions(
-                metrics_list=prev_metrics_list,
-                iteration=iteration,
+            # Compute metrics for current distributions
+            # (In a real pipeline, this would involve generating images and computing metrics)
+            metrics_list = self._create_metrics_list(
+                n_distributions,
+                {'mmd_rbf': 0.5 - iteration * 0.1, 'mean_nn_distance': 1.0 - iteration * 0.1}
+            )
+
+            # Count trials before this iteration
+            completed_before = len([t for t in optimizer.study.trials
+                                   if t.state == optuna.trial.TrialState.COMPLETE])
+
+            # Get next distributions (registers current results via add_trial)
+            next_distributions = optimizer.suggest_next_distributions(
+                current_distributions=current_distributions,
+                metrics_list=metrics_list,
                 config=mini_config
             )
 
-            # Verify pending trials state
-            print(f"[E2E Test] Pending trials after iteration {iteration}: {list(optimizer.pending_trials.keys())}")
-            pending_trials_history.append({
+            # Count trials after this iteration
+            completed_after = len([t for t in optimizer.study.trials
+                                  if t.state == optuna.trial.TrialState.COMPLETE])
+
+            # Verify trials were added
+            trials_added = completed_after - completed_before
+            print(f"[E2E Test] Trials added: {trials_added}, total completed: {completed_after}")
+
+            trial_count_history.append({
                 'iteration': iteration,
-                'pending_iterations': list(optimizer.pending_trials.keys()),
-                'n_pending_trials': {k: len(v) for k, v in optimizer.pending_trials.items()}
+                'trials_added': trials_added,
+                'total_completed': completed_after,
+                'pending_count': len(optimizer.pending_trials)
             })
 
-            # Verify current iteration has pending trials
-            assert iteration in optimizer.pending_trials, f"Iteration {iteration} should have pending trials"
-            assert len(optimizer.pending_trials[iteration]) == mini_config['iteration_batch_size']
+            # Verify n_distributions trials were added
+            assert trials_added == n_distributions, \
+                f"Expected {n_distributions} trials added, got {trials_added}"
 
-            # Verify previous iteration was completed (if exists)
-            if iteration > 0:
-                assert (iteration - 1) not in optimizer.pending_trials, \
-                    f"Iteration {iteration-1} should have been completed"
-
-            # Sample parameters from distributions (using new grouped format)
-            next_params = []
-            for dist_idx, (group_name, dist_params) in enumerate(next_distributions):
-                nested_spec = sampler.grouped_to_nested_dist_spec(group_name, dist_params)
-                params = sampler.sample_from_distribution_spec(
-                    nested_spec,
-                    n_samples=mini_config['replications_per_iteration'],
-                    seed=iteration * 1000 + dist_idx
-                )
-                for p in params:
-                    p['distribution_id'] = dist_idx
-                next_params.extend(params)
-
-            # Generate synthetic images with sampled parameters
-            print(f"[E2E Test] Generating {len(next_params)} synthetic samples...")
-            synthetic_images, synthetic_metadata = generator.generate_batch(
-                next_params,
-                replications=1,
-                seed_offset=iteration * 100000
-            )
-
-            # Extract embeddings
-            synthetic_embeddings_full = embedder.embed_batch(synthetic_images)
-            synthetic_embeddings = pca.transform(synthetic_embeddings_full)
-
-            # Compute per-distribution metrics
-            n_distributions = mini_config['iteration_batch_size']
-            metrics_list = compute_per_param_set_metrics(
-                synthetic_embeddings,
-                synthetic_metadata,
-                real_embeddings,
-                n_param_sets=n_distributions
-            )
-
-            # Also compute aggregate metrics for logging
-            metrics = compute_all_metrics(synthetic_embeddings, real_embeddings)
-
-            print(f"[E2E Test] Iteration {iteration} metrics:")
-            print(f"  mmd_rbf: {metrics['mmd_rbf']:.4f}")
-            print(f"  wasserstein: {metrics['wasserstein']:.4f}")
-            print(f"  mean_nn_distance: {metrics['mean_nn_distance']:.4f}")
+            # Verify pending trials list has n_distributions entries
+            assert len(optimizer.pending_trials) == n_distributions, \
+                f"Expected {n_distributions} pending trials, got {len(optimizer.pending_trials)}"
 
             # Update for next iteration
-            prev_metrics_list = metrics_list
+            current_distributions = next_distributions
 
         # Verify final state
         print("\n[E2E Test] Verifying final state...")
 
-        # Only last iteration should have pending trials
-        assert len(optimizer.pending_trials) == 1, "Only last iteration should have pending trials"
-        assert 2 in optimizer.pending_trials, "Iteration 2 should have pending trials"
-
-        # Verify completed trials count
+        # Verify completed trials count (3 iterations * n_distributions)
         completed_trials = [t for t in optimizer.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-        expected_completed = 2 * mini_config['iteration_batch_size']  # Iterations 0 and 1
+        expected_completed = 3 * n_distributions
         assert len(completed_trials) == expected_completed, \
             f"Expected {expected_completed} completed trials, got {len(completed_trials)}"
 
@@ -362,11 +355,12 @@ class TestOptunaE2EIntegration:
 
         print(f"[E2E Test] Completed trials: {len(completed_trials)}")
         print(f"[E2E Test] Pareto front size: {len(pareto_front)}")
-        print(f"[E2E Test] Pending trials state history:")
-        for state in pending_trials_history:
-            print(f"  Iteration {state['iteration']}: pending={state['pending_iterations']}, counts={state['n_pending_trials']}")
+        print(f"[E2E Test] Trial count history:")
+        for state in trial_count_history:
+            print(f"  Iteration {state['iteration']}: added={state['trials_added']}, "
+                  f"total={state['total_completed']}, pending={state['pending_count']}")
 
-        print("[E2E Test] ✓ Ask/tell pattern E2E test passed!")
+        print("[E2E Test] ✓ Add trial pattern E2E test passed!")
 
     def test_metrics_per_param_set(self, mini_config, temp_test_dir, param_bounds_and_groups):
         """
@@ -399,10 +393,12 @@ class TestOptunaE2EIntegration:
         real_embeddings = pca.fit_transform(real_embeddings_full)
 
         # Get distributions from optimizer
-        prev_metrics_list = self._create_metrics_list(2, {'mmd_rbf': 0.5, 'mean_nn_distance': 1.0})
-        next_distributions, _ = optimizer.suggest_next_distributions(
-            metrics_list=prev_metrics_list,
-            iteration=0,
+        n_distributions = mini_config['iteration_batch_size']
+        initial_distributions = self._create_distributions(n_distributions, group_names, param_bounds)
+        initial_metrics_list = self._create_metrics_list(n_distributions, {'mmd_rbf': 0.5, 'mean_nn_distance': 1.0})
+        next_distributions = optimizer.suggest_next_distributions(
+            current_distributions=initial_distributions,
+            metrics_list=initial_metrics_list,
             config=mini_config
         )
 
@@ -451,9 +447,9 @@ class TestOptunaE2EIntegration:
         # Verify metrics_list structure
         assert len(metrics_list) == n_distributions
         for i, metrics in enumerate(metrics_list):
-            assert 'param_set_id' in metrics
+            assert 'distribution_id' in metrics
             assert 'mmd_rbf' in metrics
             assert 'mean_nn_distance' in metrics
-            print(f"  Param set {metrics['param_set_id']}: mmd_rbf={metrics['mmd_rbf']:.4f}")
+            print(f"  Distribution {metrics['distribution_id']}: mmd_rbf={metrics['mmd_rbf']:.4f}")
 
-        print("[Test] ✓ Metrics per param set test passed!")
+        print("[Test] ✓ Metrics per distribution test passed!")

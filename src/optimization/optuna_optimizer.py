@@ -94,8 +94,8 @@ class OptunaOptimizer:
             )
         )
 
-        # Track pending trials by iteration
-        self.pending_trials = {}  # {iteration: [trial1, trial2, ...]}
+        # Track pending trials from last ask() for potential future completion
+        self.pending_trials = []
 
         print(f"Initialized OptunaOptimizer")
         print(f"  Study storage: {self.study_path}")
@@ -176,76 +176,117 @@ class OptunaOptimizer:
         """
         return self.study.best_trials
 
-    def suggest_next_distributions(
-        self,
-        metrics_list: List[Dict[str, float]],
-        iteration: int,
-        config: Dict
-    ) -> Tuple[List[Tuple[str, Dict]], bool]:
+    def _build_distributions_for_group(self, group_name: str) -> Dict:
         """
-        Suggest next distribution specifications.
+        Build Optuna distributions dict for a specific group's parameters.
 
-        Each trial selects one group and suggests parameters for that group only.
-        Optuna's TPE learns which groups produce better outcomes over time.
+        Required for add_trial() to tell Optuna the type and range of each parameter.
 
         Args:
-            metrics_list: List of metric dicts from previous iteration
-            iteration: Current iteration number
+            group_name: The group to build distributions for
+
+        Returns:
+            Dict mapping param names to optuna.distributions objects
+        """
+        distributions = {
+            "group": optuna.distributions.CategoricalDistribution(self.group_names)
+        }
+
+        group_bounds = self.param_bounds[group_name]
+        for param_name, bounds in group_bounds.items():
+            optuna_param_name = f"{group_name}__{param_name}"
+
+            if isinstance(bounds, list) and len(bounds) == 2:
+                if all(isinstance(b, (int, float)) for b in bounds):
+                    is_int = all(isinstance(b, int) or (isinstance(b, float) and b.is_integer()) for b in bounds)
+                    if is_int:
+                        distributions[optuna_param_name] = optuna.distributions.IntDistribution(
+                            int(bounds[0]), int(bounds[1])
+                        )
+                    else:
+                        distributions[optuna_param_name] = optuna.distributions.FloatDistribution(
+                            bounds[0], bounds[1]
+                        )
+                else:
+                    distributions[optuna_param_name] = optuna.distributions.CategoricalDistribution(bounds)
+
+        return distributions
+
+    def suggest_next_distributions(
+        self,
+        current_distributions: List[Tuple[str, Dict]],
+        metrics_list: List[Dict[str, float]],
+        config: Dict
+    ) -> List[Tuple[str, Dict]]:
+        """
+        Register current results and suggest next distribution specifications.
+
+        This is the main optimization interface. Each call:
+        1. Registers current distributions and their metrics with Optuna via add_trial()
+        2. Asks Optuna for the next batch of suggestions
+
+        The optimizer is agnostic to data source - it only sees distributions and metrics.
+        Works uniformly for all iterations (initial external data or optimizer-suggested).
+
+        Args:
+
+            metrics_list: List of metric dicts corresponding to current_distributions
             config: Experiment configuration dict
 
         Returns:
-            suggestions: List of (group_name, params_dict) tuples
-            converged: Whether optimization should stop
+            suggestions: List of (group_name, params_dict) tuples for next iteration
         """
-        # Report results from PREVIOUS iteration
-        if iteration > 0 and (iteration - 1) in self.pending_trials:
-            prev_trials = self.pending_trials[iteration - 1]
+        if len(current_distributions) != len(metrics_list):
+            raise ValueError(
+                f"Mismatch: {len(current_distributions)} distributions but "
+                f"{len(metrics_list)} metric dicts"
+            )
 
-            if len(metrics_list) != len(prev_trials):
-                raise ValueError(
-                    f"Mismatch: {len(metrics_list)} metric dicts provided but "
-                    f"{len(prev_trials)} trials pending for iteration {iteration-1}"
-                )
+        # Tell: Register current results with Optuna using add_trial()
+        print(f"  Registering {len(current_distributions)} results with Optuna...")
 
-            print(f"  Reporting results for iteration {iteration-1}:")
-            print(f"    Completing {len(prev_trials)} trials from iteration {iteration-1}")
+        for idx, ((group_name, params), metrics) in enumerate(zip(current_distributions, metrics_list)):
+            # Build the full params dict with prefixed names
+            trial_params = {"group": group_name}
+            for param_name, value in params.items():
+                trial_params[f"{group_name}__{param_name}"] = value
 
-            for trial, metrics in zip(prev_trials, metrics_list):
-                trial_values = [metrics[metric_name] for metric_name in self.optimization_metrics]
-                self.study.tell(trial, trial_values)
+            # Build distributions for this group
+            distributions = self._build_distributions_for_group(group_name)
 
-                dist_id = metrics.get('param_set_id', 'unknown')
-                metrics_str = ', '.join([f"{name}={metrics[name]:.4f}"
-                                        for name in self.optimization_metrics])
-                print(f"      Trial {dist_id}: {metrics_str}")
+            # Get metric values
+            trial_values = [metrics[metric_name] for metric_name in self.optimization_metrics]
 
-            del self.pending_trials[iteration - 1]
+            # Create and add the completed trial
+            trial = optuna.trial.create_trial(
+                params=trial_params,
+                distributions=distributions,
+                values=trial_values,
+                state=optuna.trial.TrialState.COMPLETE
+            )
+            self.study.add_trial(trial)
 
-        # Ask for next batch of distributions
+            metrics_str = ', '.join([f"{name}={metrics[name]:.4f}"
+                                    for name in self.optimization_metrics])
+            print(f"    Trial {idx} ({group_name}): {metrics_str}")
+
+        # Ask: Get next batch of suggestions
         n_distributions = config.get('iteration_batch_size', 8)
         suggestions = []
-        trials = []
+        self.pending_trials = []
 
-        print(f"\n  Suggesting {n_distributions} distributions for iteration {iteration}...")
+        print(f"\n  Suggesting {n_distributions} distributions for next iteration...")
 
         for i in range(n_distributions):
             trial = self.study.ask()
             group_name, params = self._define_grouped_search_space(trial)
             suggestions.append((group_name, params))
-            trials.append(trial)
-            print(f"    Trial {i}: group={group_name}")
+            self.pending_trials.append(trial)
+            print(f"    Suggestion {i}: group={group_name}")
 
-        self.pending_trials[iteration] = trials
-        print(f"  Stored {len(trials)} pending trials for iteration {iteration}")
-
-        # Convergence check
-        max_iterations = config.get('max_iterations', 10)
-        converged = iteration >= max_iterations
-
-        if converged:
-            print(f"  Convergence: Reached max iterations ({max_iterations})")
-
+        completed_count = len([t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE])
         pareto_size = len(self.get_pareto_front())
+        print(f"  Total completed trials: {completed_count}")
         print(f"  Current Pareto front size: {pareto_size}")
 
-        return suggestions, converged
+        return suggestions

@@ -168,36 +168,58 @@ def print_bounds(bounds: Dict):
     print(yaml.dump(bounds, default_flow_style=False, sort_keys=False))
 
 
-def get_param_bounds() -> tuple[Dict[str, Dict], List[str]]:
+def get_param_bounds(data_dir: Optional[Union[str, Path]] = None) -> tuple[Dict[str, Dict], List[str]]:
     """
     Get parameter bounds and group names for the optimizer.
+
+    Reads bounds from per-group CSV files in the data directory.
+    Falls back to MockDataGenerator's DEFAULT_GROUP_SPECS if no data files found.
+
+    Args:
+        data_dir: Directory containing bounds data. Expected structure:
+                 data_dir/bounds/{group_name}_params.csv
+                 If None, looks for data/test_experiment/bounds/
 
     Returns:
         param_bounds: Dict mapping group names to their parameter bounds
         group_names: List of group names
-
-    # TODO: Replace mock data generator with reading from disk.
-    # In production, this should read CSV/parquet files per group from a data directory.
-    # Example future implementation:
-    #     data_dir = Path("data/param_samples")
-    #     group_names = ['circle', 'ellipse', 'irregular']
-    #     dataframes = [pd.read_csv(data_dir / f"{g}_params.csv") for g in group_names]
-    #     return infer_conditional_bounds(dataframes, group_names), group_names
     """
     from ..data_generation.mock_data_generator import MockDataGenerator
 
-    # Generate mock data to infer bounds from
-    generator = MockDataGenerator(use_real_embeddings=False)
-    _, _, synthetic_params_groups = generator.generate_conditional_groups(
-        n_distributions_per_group=100,
-        n_samples_per_distribution=1,
-        seed=42
-    )
-
     group_names = list(MockDataGenerator.DEFAULT_GROUP_SPECS.keys())
 
-    # Infer bounds from the generated DataFrames
-    param_bounds = infer_conditional_bounds(synthetic_params_groups, group_names)
+    # Determine bounds directory
+    if data_dir is None:
+        bounds_dir = Path("data/test_experiment/bounds")
+    else:
+        bounds_dir = Path(data_dir) / "bounds"
+
+    # Try to read from data files
+    if bounds_dir.exists():
+        dataframes = []
+        all_found = True
+
+        for group_name in group_names:
+            csv_path = bounds_dir / f"{group_name}_params.csv"
+            if csv_path.exists():
+                df = pd.read_csv(csv_path)
+                dataframes.append(df)
+            else:
+                all_found = False
+                break
+
+        if all_found:
+            param_bounds = infer_conditional_bounds(dataframes, group_names)
+            return param_bounds, group_names
+
+    # Fallback: use DEFAULT_GROUP_SPECS directly
+    print("Warning: Bounds data files not found, using default specs")
+    param_bounds = {}
+    for group_name, params_spec in MockDataGenerator.DEFAULT_GROUP_SPECS.items():
+        param_bounds[group_name] = {}
+        for param_base, spec in params_spec.items():
+            param_bounds[group_name][f'{param_base}_mean'] = spec['mean_bounds']
+            param_bounds[group_name][f'{param_base}_std'] = spec['std_bounds']
 
     return param_bounds, group_names
 
