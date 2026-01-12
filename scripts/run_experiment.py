@@ -87,131 +87,194 @@ def run_iteration(
     return next_suggestions
 
 
-if __name__ == '__main__':
-    """Usage example with mock data."""
+def run_optimizer_iteration(
+    config_path: Path,
+    real_embeddings: np.ndarray,
+    embeddings_by_shape: List[np.ndarray],
+    metadata_by_shape: List['pd.DataFrame'],
+    group_names: List[str],
+    runner: ExperimentRunner = None
+) -> Tuple[List[Tuple[str, Dict]], ExperimentRunner]:
+    """
+    High-level function: run one optimization iteration from client data format.
+
+    This function handles the complete workflow from client's per-shape data format
+    through to optimization suggestions. It's the simplest way to use the optimizer.
+
+    Workflow:
+    1. Convert per-shape client data to unified optimizer format
+    2. Extract distributions and infer bounds from metadata
+    3. Create runner (or reuse existing one)
+    4. Run optimization iteration
+    5. Return suggestions for next iteration
+
+    Args:
+        config_path: Path to experiment config YAML
+        real_embeddings: Real data embeddings (M, 400)
+        embeddings_by_shape: List of synthetic embedding arrays, one per shape
+                             Each array has shape (n_samples_for_that_shape, 400)
+        metadata_by_shape: List of metadata DataFrames, one per shape
+                           Each has 'distribution_id' column and shape-specific params
+        group_names: Shape names matching the order of input lists
+                     (e.g., ['circle', 'ellipse', 'irregular'])
+        runner: Optional existing ExperimentRunner to reuse (for subsequent iterations)
+                If None, creates a new runner
+
+    Returns:
+        suggestions: List of (dist_id, params_dict) suggestions for next iteration
+        runner: The ExperimentRunner instance (pass this back for next iteration)
+
+    Example:
+        >>> from scripts.run_experiment import run_optimizer_iteration
+        >>> from pathlib import Path
+        >>>
+        >>> # First iteration
+        >>> suggestions, runner = run_optimizer_iteration(
+        ...     config_path=Path('config.yaml'),
+        ...     real_embeddings=real_embs,
+        ...     embeddings_by_shape=[circle_embs, ellipse_embs, irregular_embs],
+        ...     metadata_by_shape=[circle_df, ellipse_df, irregular_df],
+        ...     group_names=['circle', 'ellipse', 'irregular']
+        ... )
+        >>>
+        >>> # Subsequent iterations - reuse runner for efficiency
+        >>> suggestions, runner = run_optimizer_iteration(
+        ...     config_path=Path('config.yaml'),
+        ...     real_embeddings=real_embs,
+        ...     embeddings_by_shape=[new_circle_embs, new_ellipse_embs, new_irregular_embs],
+        ...     metadata_by_shape=[new_circle_df, new_ellipse_df, new_irregular_df],
+        ...     group_names=['circle', 'ellipse', 'irregular'],
+        ...     runner=runner  # Reuse!
+        ... )
+    """
     import pandas as pd
-    from src.utils.bounds_inference import infer_bounds_from_metadata, load_distributions_from_metadata
+    from src.utils.data_preparation import prepare_client_data_for_optimizer
+    from src.utils.bounds_inference import (
+        load_distributions_from_metadata,
+        infer_bounds_from_metadata
+    )
+
+    # Convert client format to optimizer format
+    synthetic_embeddings, metadata_df = prepare_client_data_for_optimizer(
+        embeddings_by_shape, metadata_by_shape, group_names
+    )
+
+    # Extract distributions and infer bounds
+    distributions = load_distributions_from_metadata(metadata_df)
+    param_bounds = infer_bounds_from_metadata(metadata_df, group_names)
+
+    # Create or reuse runner
+    if runner is None:
+        runner = create_runner(config_path, param_bounds, group_names)
+        runner.set_real_embeddings(real_embeddings)
+
+    # Run iteration
+    suggestions = run_iteration(
+        runner=runner,
+        current_distributions=distributions,
+        synthetic_embeddings_400d=synthetic_embeddings,
+        synthetic_metadata=metadata_df.to_dict('records')
+    )
+
+    return suggestions, runner
+
+
+if __name__ == '__main__':
+    """Usage example demonstrating the simplified high-level API."""
+    import pandas as pd
 
     print("=" * 60)
-    print("PRODUCTION API USAGE EXAMPLE")
+    print("PRODUCTION API - HIGH-LEVEL USAGE EXAMPLE")
     print("=" * 60)
 
     # Setup
     config_path = Path('configs/experiment_config.yaml')
     group_names = ['circle', 'ellipse', 'irregular']
 
-    # Mock iteration 0: Create 3 distributions with 10 samples each
-    n_distributions = 3
-    samples_per_dist = 10
+    # ================================================================
+    # STEP 1: Client provides per-shape data (their format)
+    # ================================================================
 
-    # Create mock metadata DataFrame (this is what external system provides)
-    # Use non-integer values to hint that these should be float distributions
-    metadata_rows = []
+    # Client provides 3 embedding arrays (one per shape)
+    # Distribution 0: 12 circle, 8 ellipse, 5 irregular samples
+    # Distribution 1: 8 circle, 10 ellipse, 7 irregular samples
+    # Distribution 2: 10 circle, 9 ellipse, 6 irregular samples
 
-    # Distribution 0
-    for _ in range(samples_per_dist):
-        metadata_rows.append({
-            'distribution_id': 0,
-            'shape_logit_circle': 0.5, 'shape_logit_ellipse': 0.0, 'shape_logit_irregular': -0.5,
-            'circle__void_count_mean': 5.2, 'circle__void_count_std': 1.1,
-            'circle__base_size_mean': 10.3, 'circle__base_size_std': 2.1,
-            'circle__center_x_mean': 0.51, 'circle__center_x_std': 0.11,
-            'circle__center_y_mean': 0.52, 'circle__center_y_std': 0.11,
-            'circle__position_spread_mean': 0.15, 'circle__position_spread_std': 0.051,
-            'ellipse__void_count_mean': 4.3, 'ellipse__void_count_std': 1.1,
-            'ellipse__base_size_mean': 12.4, 'ellipse__base_size_std': 2.1,
-            'ellipse__rotation_mean': 45.5, 'ellipse__rotation_std': 15.2,
-            'ellipse__center_x_mean': 0.51, 'ellipse__center_x_std': 0.11,
-            'ellipse__center_y_mean': 0.52, 'ellipse__center_y_std': 0.11,
-            'ellipse__position_spread_mean': 0.15, 'ellipse__position_spread_std': 0.051,
-            'irregular__void_count_mean': 3.4, 'irregular__void_count_std': 1.1,
-            'irregular__base_size_mean': 8.5, 'irregular__base_size_std': 2.1,
-            'irregular__center_x_mean': 0.51, 'irregular__center_x_std': 0.11,
-            'irregular__center_y_mean': 0.52, 'irregular__center_y_std': 0.11,
-            'irregular__position_spread_mean': 0.15, 'irregular__position_spread_std': 0.051
-        })
+    # Circle embeddings (30 total)
+    circle_embeddings = np.random.randn(30, 400).astype(np.float32)
 
-    # Distribution 1
-    for _ in range(samples_per_dist):
-        metadata_rows.append({
-            'distribution_id': 1,
-            'shape_logit_circle': 0.0, 'shape_logit_ellipse': 0.5, 'shape_logit_irregular': 0.0,
-            'circle__void_count_mean': 6.1, 'circle__void_count_std': 1.3,
-            'circle__base_size_mean': 11.2, 'circle__base_size_std': 2.4,
-            'circle__center_x_mean': 0.48, 'circle__center_x_std': 0.13,
-            'circle__center_y_mean': 0.49, 'circle__center_y_std': 0.13,
-            'circle__position_spread_mean': 0.18, 'circle__position_spread_std': 0.062,
-            'ellipse__void_count_mean': 5.2, 'ellipse__void_count_std': 1.3,
-            'ellipse__base_size_mean': 14.3, 'ellipse__base_size_std': 2.4,
-            'ellipse__rotation_mean': 90.8, 'ellipse__rotation_std': 20.3,
-            'ellipse__center_x_mean': 0.48, 'ellipse__center_x_std': 0.13,
-            'ellipse__center_y_mean': 0.49, 'ellipse__center_y_std': 0.13,
-            'ellipse__position_spread_mean': 0.18, 'ellipse__position_spread_std': 0.062,
-            'irregular__void_count_mean': 4.3, 'irregular__void_count_std': 1.3,
-            'irregular__base_size_mean': 9.4, 'irregular__base_size_std': 2.4,
-            'irregular__center_x_mean': 0.48, 'irregular__center_x_std': 0.13,
-            'irregular__center_y_mean': 0.49, 'irregular__center_y_std': 0.13,
-            'irregular__position_spread_mean': 0.18, 'irregular__position_spread_std': 0.062
-        })
+    # Ellipse embeddings (27 total)
+    ellipse_embeddings = np.random.randn(27, 400).astype(np.float32)
 
-    # Distribution 2
-    for _ in range(samples_per_dist):
-        metadata_rows.append({
-            'distribution_id': 2,
-            'shape_logit_circle': -0.5, 'shape_logit_ellipse': -0.5, 'shape_logit_irregular': 0.5,
-            'circle__void_count_mean': 7.3, 'circle__void_count_std': 1.6,
-            'circle__base_size_mean': 12.5, 'circle__base_size_std': 2.8,
-            'circle__center_x_mean': 0.53, 'circle__center_x_std': 0.16,
-            'circle__center_y_mean': 0.54, 'circle__center_y_std': 0.16,
-            'circle__position_spread_mean': 0.21, 'circle__position_spread_std': 0.073,
-            'ellipse__void_count_mean': 6.4, 'ellipse__void_count_std': 1.6,
-            'ellipse__base_size_mean': 15.6, 'ellipse__base_size_std': 2.8,
-            'ellipse__rotation_mean': 180.7, 'ellipse__rotation_std': 30.4,
-            'ellipse__center_x_mean': 0.53, 'ellipse__center_x_std': 0.16,
-            'ellipse__center_y_mean': 0.54, 'ellipse__center_y_std': 0.16,
-            'ellipse__position_spread_mean': 0.21, 'ellipse__position_spread_std': 0.073,
-            'irregular__void_count_mean': 5.5, 'irregular__void_count_std': 1.6,
-            'irregular__base_size_mean': 10.7, 'irregular__base_size_std': 2.8,
-            'irregular__center_x_mean': 0.53, 'irregular__center_x_std': 0.16,
-            'irregular__center_y_mean': 0.54, 'irregular__center_y_std': 0.16,
-            'irregular__position_spread_mean': 0.21, 'irregular__position_spread_std': 0.073
-        })
+    # Irregular embeddings (18 total)
+    irregular_embeddings = np.random.randn(18, 400).astype(np.float32)
 
-    metadata_df = pd.DataFrame(metadata_rows)
+    # Client provides 3 metadata DataFrames (one per shape) with shape-specific params
+    circle_metadata = pd.DataFrame({
+        'distribution_id': [0]*12 + [1]*8 + [2]*10,
+        'void_count_mean': [5.2]*12 + [6.1]*8 + [7.3]*10,
+        'base_size_mean': [10.3]*12 + [11.2]*8 + [12.5]*10,
+        'base_size_std': [2.1]*12 + [2.4]*8 + [2.8]*10,
+        'center_x_mean': [0.51]*12 + [0.48]*8 + [0.53]*10,
+        'center_x_std': [0.11]*12 + [0.13]*8 + [0.16]*10,
+        'center_y_mean': [0.52]*12 + [0.49]*8 + [0.54]*10,
+        'center_y_std': [0.11]*12 + [0.13]*8 + [0.16]*10,
+        'position_spread_mean': [0.15]*12 + [0.18]*8 + [0.21]*10,
+        'position_spread_std': [0.051]*12 + [0.062]*8 + [0.073]*10
+    })
 
-    # Create mock embeddings
-    total_samples = n_distributions * samples_per_dist
+    ellipse_metadata = pd.DataFrame({
+        'distribution_id': [0]*8 + [1]*10 + [2]*9,
+        'void_count_mean': [4.3]*8 + [5.2]*10 + [6.4]*9,
+        'base_size_mean': [12.4]*8 + [14.3]*10 + [15.6]*9,
+        'base_size_std': [2.1]*8 + [2.4]*10 + [2.8]*9,
+        'rotation_mean': [45.5]*8 + [90.8]*10 + [180.7]*9,
+        'rotation_std': [15.2]*8 + [20.3]*10 + [30.4]*9,
+        'center_x_mean': [0.51]*8 + [0.48]*10 + [0.53]*9,
+        'center_x_std': [0.11]*8 + [0.13]*10 + [0.16]*9,
+        'center_y_mean': [0.52]*8 + [0.49]*10 + [0.54]*9,
+        'center_y_std': [0.11]*8 + [0.13]*10 + [0.16]*9,
+        'position_spread_mean': [0.15]*8 + [0.18]*10 + [0.21]*9,
+        'position_spread_std': [0.051]*8 + [0.062]*10 + [0.073]*9
+    })
+
+    irregular_metadata = pd.DataFrame({
+        'distribution_id': [0]*5 + [1]*7 + [2]*6,
+        'void_count_mean': [3.4]*5 + [4.3]*7 + [5.5]*6,
+        'base_size_mean': [8.5]*5 + [9.4]*7 + [10.7]*6,
+        'base_size_std': [2.1]*5 + [2.4]*7 + [2.8]*6,
+        'center_x_mean': [0.51]*5 + [0.48]*7 + [0.53]*6,
+        'center_x_std': [0.11]*5 + [0.13]*7 + [0.16]*6,
+        'center_y_mean': [0.52]*5 + [0.49]*7 + [0.54]*6,
+        'center_y_std': [0.11]*5 + [0.13]*7 + [0.16]*6,
+        'position_spread_mean': [0.15]*5 + [0.18]*7 + [0.21]*6,
+        'position_spread_std': [0.051]*5 + [0.062]*7 + [0.073]*6
+    })
+
+    print(f"\n[Client Data] Provided per-shape data:")
+    print(f"  Circle: {circle_embeddings.shape[0]} samples, metadata shape {circle_metadata.shape}")
+    print(f"  Ellipse: {ellipse_embeddings.shape[0]} samples, metadata shape {ellipse_metadata.shape}")
+    print(f"  Irregular: {irregular_embeddings.shape[0]} samples, metadata shape {irregular_metadata.shape}")
+
+    # Create real embeddings
     real_embeddings = np.random.randn(100, 400).astype(np.float32)
-    synthetic_embeddings = np.random.randn(total_samples, 400).astype(np.float32)
 
-    print(f"\n[Setup] Created mock data:")
-    print(f"  Real embeddings: {real_embeddings.shape}")
-    print(f"  Synthetic embeddings: {synthetic_embeddings.shape}")
-    print(f"  Metadata: {metadata_df.shape}")
+    # ================================================================
+    # STEP 2: Run optimization using high-level API (single function call!)
+    # ================================================================
 
-    # Extract distributions from metadata
-    print(f"\n[1/4] Extracting distributions from metadata...")
-    distributions = load_distributions_from_metadata(metadata_df)
-    print(f"  Extracted {len(distributions)} distributions")
-
-    # Infer bounds from metadata
-    print(f"[2/4] Inferring bounds from metadata...")
-    param_bounds = infer_bounds_from_metadata(metadata_df, group_names)
-    print(f"  Inferred bounds for {len(param_bounds)} groups")
-
-    # Create runner
-    print(f"[3/4] Creating runner...")
-    runner = create_runner(config_path, param_bounds, group_names)
-    runner.set_real_embeddings(real_embeddings)
-
-    # Run iteration
-    print(f"[4/4] Running iteration...")
-    suggestions = run_iteration(
-        runner=runner,
-        current_distributions=distributions,
-        synthetic_embeddings_400d=synthetic_embeddings,
-        synthetic_metadata=metadata_rows
+    print(f"\n[Running Optimizer] Using high-level API...")
+    suggestions, runner = run_optimizer_iteration(
+        config_path=config_path,
+        real_embeddings=real_embeddings,
+        embeddings_by_shape=[circle_embeddings, ellipse_embeddings, irregular_embeddings],
+        metadata_by_shape=[circle_metadata, ellipse_metadata, irregular_metadata],
+        group_names=group_names
     )
+
+    # ================================================================
+    # Done!
+    # ================================================================
 
     print("\n" + "=" * 60)
     print("EXAMPLE COMPLETE")
@@ -219,3 +282,10 @@ if __name__ == '__main__':
     print(f"\nReceived {len(suggestions)} suggestions for next iteration")
     print(f"First suggestion ID: {suggestions[0][0]}")
     print(f"  Param keys: {len(suggestions[0][1])} total")
+
+    # Show shape probabilities from first suggestion
+    first_suggestion_params = suggestions[0][1]
+    shape_logits = {k: v for k, v in first_suggestion_params.items() if k.startswith('shape_logit_')}
+    print(f"  Shape logits: {shape_logits}")
+
+

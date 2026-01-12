@@ -13,7 +13,7 @@ For a single group (non-conditional case), pass a list of length 1.
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Tuple
 import yaml
 
 
@@ -168,7 +168,7 @@ def print_bounds(bounds: Dict):
     print(yaml.dump(bounds, default_flow_style=False, sort_keys=False))
 
 
-def get_param_bounds(data_dir: Optional[Union[str, Path]] = None) -> tuple[Dict[str, Dict], List[str]]:
+def get_param_bounds(data_dir: Optional[Union[str, Path]] = None) -> Tuple[Dict[str, Dict], List[str]]:
     """
     Get parameter bounds and group names for the optimizer.
 
@@ -268,7 +268,7 @@ def load_distribution_from_directory(
     directory: Union[str, Path],
     group_names: List[str],
     param_bounds: Dict[str, Dict]
-) -> tuple[str, Dict]:
+) -> Tuple[str, Dict]:
     """
     Load a single distribution from a directory containing per-shape CSVs.
 
@@ -332,7 +332,7 @@ def load_distribution_from_directory(
 def load_distributions_from_directories(
     directories: List[Union[str, Path]],
     group_names: List[str]
-) -> tuple[List[tuple[str, Dict]], Dict[str, Dict]]:
+) -> Tuple[List[Tuple[str, Dict]], Dict[str, Dict]]:
     """
     Load N distributions from N directories for initial optimizer input.
 
@@ -411,7 +411,7 @@ def infer_bounds_from_metadata(
 
 def load_distributions_from_metadata(
     metadata_df: pd.DataFrame
-) -> List[tuple[str, Dict]]:
+) -> List[Tuple[str, Dict]]:
     """
     Extract distributions from metadata DataFrame.
 
