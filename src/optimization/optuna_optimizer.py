@@ -2,6 +2,7 @@
 Optuna-based Bayesian optimizer for synthetic data parameter optimization.
 """
 
+import math
 import optuna
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -11,13 +12,14 @@ class OptunaOptimizer:
     """
     Optuna-based optimizer using TPE (Tree-structured Parzen Estimator) sampler.
 
-    Supports grouped/conditional parameters where different groups (e.g., shapes)
-    have different parameter sets. Optuna's TPE learns which groups produce
-    better outcomes through native categorical parameter modeling.
+    Jointly optimizes shape probabilities and all shape-specific parameters.
+    Each trial suggests:
+    1. Shape logits (converted to probabilities via softmax downstream)
+    2. All parameters for all shapes simultaneously
 
     Features:
     - Multi-objective optimization (configurable metrics)
-    - Grouped parameter bounds with conditional search space
+    - Joint shape probability + parameter optimization
     - Proper ask/tell pattern with pending trials tracking
     - Pareto front tracking for trade-off analysis
     - SQLite persistence for study state
@@ -28,7 +30,8 @@ class OptunaOptimizer:
         experiment_dir: Path,
         config: Dict,
         param_bounds: Dict[str, Dict],
-        group_names: List[str]
+        group_names: List[str],
+        logit_bounds: Tuple[float, float] = (-5.0, 5.0)
     ):
         """
         Initialize Optuna optimizer.
@@ -39,10 +42,12 @@ class OptunaOptimizer:
             param_bounds: Dict mapping group names to their parameter bounds
                           e.g., {'circle': {'void_count_mean': [1.0, 10.0], ...}}
             group_names: Names for each group
+            logit_bounds: Min/max bounds for shape logits (default: -5.0 to 5.0)
         """
         self.experiment_dir = Path(experiment_dir)
         self.config = config
         self.study_path = self.experiment_dir / "optuna_study.db"
+        self.logit_bounds = logit_bounds
 
         # Validate inputs
         if not param_bounds or not group_names:
@@ -71,16 +76,18 @@ class OptunaOptimizer:
         optimizer_config = config.get('optimizer', {})
         multivariate = optimizer_config.get('multivariate', True)
 
-        # Set n_startup_trials: ensure all groups get explored
-        # Default: 20 trials per group
+        # Set n_startup_trials: higher for joint optimization due to larger search space
+        # Default: 50 trials (more than per-group mode due to ~18 params)
         if 'n_startup_trials' in optimizer_config:
             n_startup_trials = optimizer_config['n_startup_trials']
         else:
-            n_startup_trials = 20 * len(self.group_names)
+            # Count total params: logits + all shape params
+            total_params = len(group_names)  # logits
+            for group_bounds in param_bounds.values():
+                total_params += len(group_bounds)
+            n_startup_trials = max(50, 3 * total_params)
 
         # Multi-objective optimization with configurable metrics
-        # For grouped mode with conditional params, suppress independent sampling warnings
-        # (expected behavior when using dynamic search space with multivariate TPE)
         self.study = optuna.create_study(
             study_name=study_name,
             storage=storage,
@@ -97,10 +104,11 @@ class OptunaOptimizer:
         # Track pending trials from last ask() for potential future completion
         self.pending_trials = []
 
-        print(f"Initialized OptunaOptimizer")
+        print(f"Initialized OptunaOptimizer (joint mode)")
         print(f"  Study storage: {self.study_path}")
         print(f"  Study name: {study_name}")
         print(f"  Objectives: {n_objectives} ({', '.join(self.optimization_metrics)})")
+        print(f"  Logit bounds: {logit_bounds}")
         print(f"  TPE startup trials: {n_startup_trials}")
         print(f"  TPE multivariate: {multivariate}")
         print(f"  Groups: {', '.join(self.group_names)}")
@@ -108,33 +116,36 @@ class OptunaOptimizer:
             params = list(self.param_bounds[group_name].keys())
             print(f"    {group_name}: {len(params)} params")
 
-    def _define_grouped_search_space(self, trial: optuna.Trial) -> Tuple[str, Dict]:
+    def _define_joint_search_space(self, trial: optuna.Trial) -> Dict:
         """
-        Define search space for grouped bounds using Optuna's native categorical handling.
+        Define joint search space: shape logits + all shape params.
 
-        Optuna's TPE naturally learns which group produces better outcomes through
-        its categorical parameter modeling. Only the selected group's parameters
-        are suggested (conditional parameters).
-
-        Note: Parameters are prefixed with group name for Optuna's internal tracking
-        (e.g., 'circle__void_count_mean') but returned without prefix in the dict.
+        Each trial suggests:
+        1. Shape logits for all groups (converted to probabilities downstream)
+        2. All parameters for all shapes
 
         Returns:
-            selected_group: The group name selected by Optuna
-            group_params: Dict of parameters for the selected group (keys without prefix)
+            Dict with shape_logit_* keys and {shape}__{param} keys
         """
-        # Let Optuna learn which group is best via categorical sampling
-        selected_group = trial.suggest_categorical("group", self.group_names)
-
-        # Suggest parameters only for the selected group (conditional params)
-        # Prefix with group name to avoid Optuna conflicts between groups
-        group_bounds = self.param_bounds[selected_group]
         params = {}
-        for param_name, bounds in group_bounds.items():
-            optuna_param_name = f"{selected_group}__{param_name}"
-            params[param_name] = self._suggest_single_param(trial, optuna_param_name, bounds)
 
-        return selected_group, params
+        # 1. Shape logits (converted to probs downstream via softmax)
+        for group_name in self.group_names:
+            logit = trial.suggest_float(
+                f'shape_logit_{group_name}',
+                self.logit_bounds[0],
+                self.logit_bounds[1]
+            )
+            params[f'shape_logit_{group_name}'] = logit
+
+        # 2. All params for all shapes
+        for group_name in self.group_names:
+            group_bounds = self.param_bounds[group_name]
+            for param_name, bounds in group_bounds.items():
+                optuna_key = f'{group_name}__{param_name}'
+                params[optuna_key] = self._suggest_single_param(trial, optuna_key, bounds)
+
+        return params
 
     def _suggest_single_param(self, trial: optuna.Trial, param_name: str, bounds):
         """
@@ -167,6 +178,56 @@ class OptunaOptimizer:
 
         raise ValueError(f"Invalid bounds format for parameter '{param_name}': {bounds}")
 
+    def _bounds_to_distribution(self, bounds) -> optuna.distributions.BaseDistribution:
+        """
+        Convert bounds to an Optuna distribution object.
+
+        Args:
+            bounds: Either [min, max] for numerical or list of categories for categorical
+
+        Returns:
+            Optuna distribution object
+        """
+        if isinstance(bounds, list) and len(bounds) == 2:
+            if all(isinstance(b, (int, float)) for b in bounds):
+                is_int = all(isinstance(b, int) or (isinstance(b, float) and b.is_integer()) for b in bounds)
+                if is_int:
+                    return optuna.distributions.IntDistribution(int(bounds[0]), int(bounds[1]))
+                else:
+                    return optuna.distributions.FloatDistribution(bounds[0], bounds[1])
+            else:
+                return optuna.distributions.CategoricalDistribution(bounds)
+        elif isinstance(bounds, list):
+            return optuna.distributions.CategoricalDistribution(bounds)
+
+        raise ValueError(f"Invalid bounds format: {bounds}")
+
+    def _build_full_distributions(self) -> Dict:
+        """
+        Build Optuna distributions for all params (logits + all shape params).
+
+        Required for add_trial() to tell Optuna the type and range of each parameter.
+
+        Returns:
+            Dict mapping param names to optuna.distributions objects
+        """
+        distributions = {}
+
+        # Logit distributions
+        for group_name in self.group_names:
+            distributions[f'shape_logit_{group_name}'] = optuna.distributions.FloatDistribution(
+                self.logit_bounds[0], self.logit_bounds[1]
+            )
+
+        # All shape param distributions
+        for group_name in self.group_names:
+            group_bounds = self.param_bounds[group_name]
+            for param_name, bounds in group_bounds.items():
+                optuna_key = f'{group_name}__{param_name}'
+                distributions[optuna_key] = self._bounds_to_distribution(bounds)
+
+        return distributions
+
     def get_pareto_front(self) -> List[optuna.trial.FrozenTrial]:
         """
         Get non-dominated trials from Pareto front.
@@ -176,41 +237,65 @@ class OptunaOptimizer:
         """
         return self.study.best_trials
 
-    def _build_distributions_for_group(self, group_name: str) -> Dict:
+    @staticmethod
+    def sample_counts_to_logits(sample_counts: Dict[str, int]) -> Dict[str, float]:
         """
-        Build Optuna distributions dict for a specific group's parameters.
+        Convert sample counts to logits (inverse softmax).
 
-        Required for add_trial() to tell Optuna the type and range of each parameter.
+        Used to infer initial shape probabilities from data where sample counts
+        across shape CSVs determine the distribution.
 
         Args:
-            group_name: The group to build distributions for
+            sample_counts: Dict mapping group names to sample counts
+                          e.g., {'circle': 100, 'ellipse': 80, 'irregular': 70}
 
         Returns:
-            Dict mapping param names to optuna.distributions objects
+            Dict with shape_logit_* keys
+            e.g., {'shape_logit_circle': -0.22, 'shape_logit_ellipse': -0.44, ...}
         """
-        distributions = {
-            "group": optuna.distributions.CategoricalDistribution(self.group_names)
-        }
+        total = sum(sample_counts.values())
+        if total == 0:
+            raise ValueError("Total sample count cannot be zero")
 
-        group_bounds = self.param_bounds[group_name]
-        for param_name, bounds in group_bounds.items():
-            optuna_param_name = f"{group_name}__{param_name}"
+        logits = {}
+        for shape, count in sample_counts.items():
+            # Compute probability, clamp to avoid log(0)
+            prob = max(count / total, 1e-6)
+            # Inverse softmax: logit = log(prob)
+            # (constant offset cancels out in softmax)
+            logits[f'shape_logit_{shape}'] = math.log(prob)
 
-            if isinstance(bounds, list) and len(bounds) == 2:
-                if all(isinstance(b, (int, float)) for b in bounds):
-                    is_int = all(isinstance(b, int) or (isinstance(b, float) and b.is_integer()) for b in bounds)
-                    if is_int:
-                        distributions[optuna_param_name] = optuna.distributions.IntDistribution(
-                            int(bounds[0]), int(bounds[1])
-                        )
-                    else:
-                        distributions[optuna_param_name] = optuna.distributions.FloatDistribution(
-                            bounds[0], bounds[1]
-                        )
-                else:
-                    distributions[optuna_param_name] = optuna.distributions.CategoricalDistribution(bounds)
+        return logits
 
-        return distributions
+    @staticmethod
+    def logits_to_probabilities(params: Dict) -> Dict[str, float]:
+        """
+        Convert shape logits in params dict to probabilities via softmax.
+
+        Args:
+            params: Dict containing shape_logit_* keys
+
+        Returns:
+            Dict mapping shape names to probabilities (sum to 1.0)
+        """
+        # Extract logits
+        logit_prefix = 'shape_logit_'
+        logits = {}
+        for key, value in params.items():
+            if key.startswith(logit_prefix):
+                shape = key[len(logit_prefix):]
+                logits[shape] = value
+
+        if not logits:
+            return {}
+
+        # Softmax: exp(z_i) / sum(exp(z_j))
+        # Subtract max for numerical stability
+        max_logit = max(logits.values())
+        exp_logits = {k: math.exp(v - max_logit) for k, v in logits.items()}
+        total = sum(exp_logits.values())
+
+        return {k: v / total for k, v in exp_logits.items()}
 
     def suggest_next_distributions(
         self,
@@ -229,12 +314,13 @@ class OptunaOptimizer:
         Works uniformly for all iterations (initial external data or optimizer-suggested).
 
         Args:
-
+            current_distributions: List of (dist_id, params_dict) where params_dict
+                                   contains shape_logit_* and {shape}__{param} keys
             metrics_list: List of metric dicts corresponding to current_distributions
             config: Experiment configuration dict
 
         Returns:
-            suggestions: List of (group_name, params_dict) tuples for next iteration
+            suggestions: List of (dist_id, params_dict) tuples for next iteration
         """
         if len(current_distributions) != len(metrics_list):
             raise ValueError(
@@ -242,49 +328,52 @@ class OptunaOptimizer:
                 f"{len(metrics_list)} metric dicts"
             )
 
+        # Build full distributions once (same for all trials in joint mode)
+        distributions = self._build_full_distributions()
+
         # Tell: Register current results with Optuna using add_trial()
         print(f"  Registering {len(current_distributions)} results with Optuna...")
 
-        for idx, ((group_name, params), metrics) in enumerate(zip(current_distributions, metrics_list)):
-            # Build the full params dict with prefixed names
-            trial_params = {"group": group_name}
-            for param_name, value in params.items():
-                trial_params[f"{group_name}__{param_name}"] = value
-
-            # Build distributions for this group
-            distributions = self._build_distributions_for_group(group_name)
-
+        for idx, ((dist_id, params), metrics) in enumerate(zip(current_distributions, metrics_list)):
             # Get metric values
             trial_values = [metrics[metric_name] for metric_name in self.optimization_metrics]
 
             # Create and add the completed trial
             trial = optuna.trial.create_trial(
-                params=trial_params,
+                params=params,
                 distributions=distributions,
                 values=trial_values,
                 state=optuna.trial.TrialState.COMPLETE
             )
             self.study.add_trial(trial)
 
+            # Log probabilities for readability
+            probs = self.logits_to_probabilities(params)
+            probs_str = ', '.join([f"{k}={v:.2%}" for k, v in sorted(probs.items())])
             metrics_str = ', '.join([f"{name}={metrics[name]:.4f}"
                                     for name in self.optimization_metrics])
-            print(f"    Trial {idx} ({group_name}): {metrics_str}")
 
         # Ask: Get next batch of suggestions
         n_distributions = config.get('iteration_batch_size', 8)
         suggestions = []
         self.pending_trials = []
 
+        # Get current trial count for generating dist_ids
+        completed_count = len([t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+
         print(f"\n  Suggesting {n_distributions} distributions for next iteration...")
 
         for i in range(n_distributions):
             trial = self.study.ask()
-            group_name, params = self._define_grouped_search_space(trial)
-            suggestions.append((group_name, params))
+            params = self._define_joint_search_space(trial)
+            dist_id = f"dist_{completed_count + i}"
+            suggestions.append((dist_id, params))
             self.pending_trials.append(trial)
-            print(f"    Suggestion {i}: group={group_name}")
 
-        completed_count = len([t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+            # Log suggestion with probabilities
+            probs = self.logits_to_probabilities(params)
+            probs_str = ', '.join([f"{k}={v:.2%}" for k, v in sorted(probs.items())])
+
         pareto_size = len(self.get_pareto_front())
         print(f"  Total completed trials: {completed_count}")
         print(f"  Current Pareto front size: {pareto_size}")

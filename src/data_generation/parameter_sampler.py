@@ -119,6 +119,8 @@ class ParameterSampler:
         """
         Convert grouped optimizer output to nested distribution specification.
 
+        DEPRECATED: Use joint_to_nested_dist_spec() for joint optimization format.
+
         Converts grouped format (group_name, params) where:
             group_name: 'circle', 'ellipse', or 'irregular'
             params: {'void_count_mean': 5, 'void_count_std': 2, ...}
@@ -159,6 +161,147 @@ class ParameterSampler:
                 nested['rotation'] = {'mean': 0.0, 'std': 0.0}
 
         return nested
+
+    @staticmethod
+    def joint_to_per_shape_dist_specs(
+        joint_params: Dict,
+        group_names: List[str]
+    ) -> Dict[str, Dict]:
+        """
+        Convert joint optimizer format to per-shape distribution specs.
+
+        Joint format from optimizer:
+            {
+                'shape_logit_circle': 0.5,
+                'shape_logit_ellipse': 0.3,
+                'circle__void_count_mean': 5,
+                'circle__void_count_std': 2,
+                'ellipse__void_count_mean': 4,
+                ...
+            }
+
+        Converts to per-shape specs:
+            {
+                'circle': {'void_count': {'mean': 5, 'std': 2}, ...},
+                'ellipse': {'void_count': {'mean': 4, 'std': ...}, ...}
+            }
+
+        Args:
+            joint_params: Joint optimizer output dict
+            group_names: List of shape names
+
+        Returns:
+            Dict mapping shape names to nested distribution specs
+        """
+        per_shape_specs = {}
+        param_bases = ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']
+
+        for group_name in group_names:
+            spec = {}
+
+            for param_base in param_bases:
+                mean_key = f'{group_name}__{param_base}_mean'
+                std_key = f'{group_name}__{param_base}_std'
+
+                if mean_key in joint_params and std_key in joint_params:
+                    spec[param_base] = {
+                        'mean': joint_params[mean_key],
+                        'std': joint_params[std_key]
+                    }
+                elif param_base == 'rotation' and group_name != 'ellipse':
+                    # Default rotation for non-ellipse shapes
+                    spec['rotation'] = {'mean': 0.0, 'std': 0.0}
+
+            per_shape_specs[group_name] = spec
+
+        return per_shape_specs
+
+    def sample_from_joint_distribution(
+        self,
+        joint_params: Dict,
+        group_names: List[str],
+        n_samples: int,
+        seed: Optional[int] = None
+    ) -> List[Dict]:
+        """
+        Sample concrete parameters from joint optimizer output.
+
+        Uses softmax on shape logits to get probabilities, then samples shapes
+        according to those probabilities. For each sampled shape, samples params
+        from that shape's distribution.
+
+        Args:
+            joint_params: Joint optimizer output dict with:
+                         - shape_logit_* keys
+                         - {shape}__{param}_mean and {shape}__{param}_std keys
+            group_names: List of shape names
+            n_samples: Number of samples to generate
+            seed: Random seed for reproducibility
+
+        Returns:
+            List of concrete parameter dicts ready for VoidGenerator
+        """
+        import math
+
+        if seed is not None:
+            np.random.seed(seed)
+
+        # Convert logits to probabilities via softmax
+        logits = {}
+        for g in group_names:
+            logit_key = f'shape_logit_{g}'
+            logits[g] = joint_params.get(logit_key, 0.0)
+
+        # Softmax with numerical stability
+        max_logit = max(logits.values())
+        exp_logits = {k: math.exp(v - max_logit) for k, v in logits.items()}
+        total = sum(exp_logits.values())
+        shape_probs = {k: v / total for k, v in exp_logits.items()}
+
+        # Get per-shape distribution specs
+        per_shape_specs = self.joint_to_per_shape_dist_specs(joint_params, group_names)
+
+        # Sample
+        samples = []
+        for _ in range(n_samples):
+            # Sample shape according to probabilities
+            shape = np.random.choice(
+                list(shape_probs.keys()),
+                p=list(shape_probs.values())
+            )
+
+            # Get spec for this shape
+            spec = per_shape_specs[shape]
+
+            # Sample concrete params
+            params = {'void_shape': shape}
+
+            for param_base in ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
+                if param_base in spec:
+                    mean = spec[param_base]['mean']
+                    std = spec[param_base]['std']
+                    value = np.random.normal(mean, std)
+
+                    # Apply bounds and precision
+                    mean_bounds_key = f'{param_base}_mean'
+                    if mean_bounds_key in self.distribution_param_bounds:
+                        bounds = self.distribution_param_bounds[mean_bounds_key]
+                        value = max(value, bounds[0])
+                        value = min(value, bounds[1])
+
+                    if param_base in self.param_precision:
+                        value = round(value, self.param_precision[param_base])
+
+                    if param_base == 'void_count':
+                        value = int(round(value))
+                    else:
+                        value = float(value)
+
+                    params[param_base] = value
+
+            samples.append(params)
+
+        return samples
 
     def _sample_categorical(self, spec: Dict) -> str:
         """Sample from categorical distribution (e.g., void_shape)"""

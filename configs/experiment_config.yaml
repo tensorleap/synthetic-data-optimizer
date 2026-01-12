@@ -28,10 +28,8 @@ param_precision:
 
 # Optimization metrics
 # List of metrics to optimize (order matters - first metric is primary)
-# Available metrics: mmd_rbf, mmd_linear, wasserstein, mean_nn_distance, median_nn_distance
 optimization_metrics:
   - mmd_rbf
-  - mean_nn_distance
 
 # Convergence criteria
 convergence_threshold: 0.05  # distribution similarity metric

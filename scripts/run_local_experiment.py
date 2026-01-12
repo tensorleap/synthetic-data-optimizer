@@ -91,13 +91,16 @@ def generate_initial_distributions(
     config: Dict,
     sampler: ParameterSampler,
     n_distributions: int,
-    param_bounds: Dict[str, Dict]
+    param_bounds: Dict[str, Dict],
+    group_names: List[str]
 ) -> List[Tuple[str, Dict]]:
     """
-    Generate initial distributions from config.
+    Generate initial distributions in joint format from config.
 
     Samples from the 'initial_condition' distribution type and converts
-    to the grouped format expected by the optimizer.
+    to the joint format expected by the optimizer:
+    - shape_logit_* keys for all groups
+    - {group}__{param} keys for all params of all groups
 
     NOTE: This function modifies param_bounds in-place to expand bounds
     if initial condition values fall outside them.
@@ -107,12 +110,13 @@ def generate_initial_distributions(
         sampler: Parameter sampler
         n_distributions: Number of distributions to generate
         param_bounds: Dict mapping group names to their parameter bounds
-                     (used to filter params to only those the optimizer expects)
-                     Modified in-place if values fall outside bounds.
+        group_names: List of group names
 
     Returns:
-        List of (group_name, params_dict) tuples
+        List of (dist_id, joint_params_dict) tuples
     """
+    import math
+
     initial_condition = config.get('initial_condition', 'close')
     seed = config.get('random_seed', 42)
 
@@ -126,41 +130,65 @@ def generate_initial_distributions(
         seed=seed
     )
 
-    # Convert to grouped format: (group_name, distribution_params)
-    # Only include params that exist in the group's param_bounds
+    # Convert to joint format: (dist_id, joint_params_dict)
     distributions = []
-    for params in param_sets:
-        group_name = params['void_shape']
-        group_bounds = param_bounds.get(group_name, {})
+    for i, params in enumerate(param_sets):
+        sampled_shape = params['void_shape']
 
-        # Extract distribution parameters (mean/std for each param)
-        # Filter to only params that exist in this group's bounds
-        dist_params = {}
-        for key, value in params.items():
-            if key == 'void_shape':
-                continue
-            mean_key = f'{key}_mean'
-            std_key = f'{key}_std'
-            # Only include if the param exists in this group's bounds
-            if mean_key in group_bounds:
-                # Expand bounds if value is outside (for local testing)
-                bounds = group_bounds[mean_key]
-                if value < bounds[0]:
-                    bounds[0] = float(value)
-                if value > bounds[1]:
-                    bounds[1] = float(value)
-                dist_params[mean_key] = value
+        # Build joint params dict
+        joint_params = {}
 
-                # Get std from config and expand bounds if needed
-                std_value = initial_dist_config.get(key, {}).get('std', 0.1 * abs(value))
-                if std_key in group_bounds:
-                    std_bounds = group_bounds[std_key]
-                    if std_value < std_bounds[0]:
-                        std_bounds[0] = float(std_value)
-                    if std_value > std_bounds[1]:
-                        std_bounds[1] = float(std_value)
-                dist_params[std_key] = std_value
-        distributions.append((group_name, dist_params))
+        # Add shape logits - higher logit for the sampled shape
+        for group_name in group_names:
+            if group_name == sampled_shape:
+                # Give higher probability to sampled shape
+                joint_params[f'shape_logit_{group_name}'] = 1.0
+            else:
+                joint_params[f'shape_logit_{group_name}'] = -1.0
+
+        # Add all params for all shapes
+        for group_name in group_names:
+            group_bounds = param_bounds.get(group_name, {})
+
+            for param_name, bounds in group_bounds.items():
+                optuna_key = f'{group_name}__{param_name}'
+
+                # Get base param name (remove _mean/_std suffix)
+                if param_name.endswith('_mean'):
+                    base_param = param_name[:-5]
+                elif param_name.endswith('_std'):
+                    base_param = param_name[:-4]
+                else:
+                    base_param = param_name
+
+                if param_name.endswith('_mean'):
+                    # Use sampled value if this is the sampled shape, else midpoint
+                    if group_name == sampled_shape and base_param in params:
+                        value = params[base_param]
+                    else:
+                        value = (bounds[0] + bounds[1]) / 2
+
+                    # Expand bounds if value is outside
+                    if value < bounds[0]:
+                        bounds[0] = float(value)
+                    if value > bounds[1]:
+                        bounds[1] = float(value)
+
+                    joint_params[optuna_key] = value
+
+                elif param_name.endswith('_std'):
+                    # Get std from config
+                    std_value = initial_dist_config.get(base_param, {}).get('std', 0.1)
+
+                    # Expand bounds if needed
+                    if std_value < bounds[0]:
+                        bounds[0] = float(std_value)
+                    if std_value > bounds[1]:
+                        bounds[1] = float(std_value)
+
+                    joint_params[optuna_key] = std_value
+
+        distributions.append((f"init_{i}", joint_params))
 
     return distributions
 
@@ -172,19 +200,21 @@ def generate_synthetic_data(
     embedder: DinoV2Embedder,
     pca: PCAProjector,
     replications: int,
-    seed_offset: int
+    seed_offset: int,
+    group_names: List[str]
 ) -> Tuple[np.ndarray, List[Dict]]:
     """
     Generate synthetic data for given distributions.
 
     Args:
-        distributions: List of (group_name, params_dict) tuples
+        distributions: List of (dist_id, joint_params_dict) tuples in joint format
         sampler: Parameter sampler
         generator: Void generator
         embedder: DinoV2 embedder
         pca: Fitted PCA projector
         replications: Number of samples per distribution
         seed_offset: Seed offset for reproducibility
+        group_names: List of group names
 
     Returns:
         embeddings_400d: Generated embeddings (N, 400)
@@ -192,13 +222,11 @@ def generate_synthetic_data(
     """
     all_params = []
 
-    for dist_idx, (group_name, dist_params) in enumerate(distributions):
-        # Convert grouped format to nested spec
-        nested_spec = sampler.grouped_to_nested_dist_spec(group_name, dist_params)
-
-        # Sample concrete parameters
-        params = sampler.sample_from_distribution_spec(
-            nested_spec,
+    for dist_idx, (dist_id, joint_params) in enumerate(distributions):
+        # Sample concrete parameters from joint distribution
+        params = sampler.sample_from_joint_distribution(
+            joint_params,
+            group_names,
             n_samples=replications,
             seed=seed_offset + dist_idx
         )
@@ -248,7 +276,9 @@ def run_local_experiment(config_path: Path):
     # Generate initial distributions BEFORE creating runner
     # This may expand param_bounds in-place if initial values fall outside
     n_distributions = config.get('iteration_batch_size', 8)
-    initial_distributions = generate_initial_distributions(config, sampler, n_distributions, param_bounds)
+    initial_distributions = generate_initial_distributions(
+        config, sampler, n_distributions, param_bounds, group_names
+    )
     print(f"\n[Setup] Generated {len(initial_distributions)} initial distributions")
 
     # Initialize experiment runner with (potentially expanded) bounds
@@ -297,7 +327,8 @@ def run_local_experiment(config_path: Path):
             embedder,
             pca,
             replications=replications,
-            seed_offset=(iteration + 1) * 10000
+            seed_offset=(iteration + 1) * 10000,
+            group_names=group_names
         )
 
         # Run iteration

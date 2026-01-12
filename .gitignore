@@ -97,6 +97,7 @@ data/test_*.pkl
 
 # Experiments results
 data/experiments
+data/test_*
 
 # Model files (optional - uncomment if needed)
 # *.pkl
