@@ -88,63 +88,41 @@ def run_iteration(
 
 
 def run_optimizer_iteration(
-    config_path: Path,
     real_embeddings: np.ndarray,
-    embeddings_by_shape: List[np.ndarray],
-    metadata_by_shape: List['pd.DataFrame'],
-    group_names: List[str],
-    runner: ExperimentRunner = None
+    embeddings_per_simulation: List[np.ndarray],
+    metadata_per_simulation: List['pd.DataFrame']
 ) -> List[Tuple[str, Dict]]:
     """
     High-level function: run one optimization iteration from client data format.
 
-    This function handles the complete workflow from client's per-shape data format
+    This function handles the complete workflow from client's per-simulation data format
     through to optimization suggestions. It's the simplest way to use the optimizer.
 
     Workflow:
-    1. Convert per-shape client data to unified optimizer format
+    1. Convert per-simulation client data to unified optimizer format
     2. Extract distributions and infer bounds from metadata
     3. Create runner (or reuse existing one)
     4. Run optimization iteration
     5. Return suggestions for next iteration
 
     Args:
-        config_path: Path to experiment config YAML
         real_embeddings: Real data embeddings (M, 400)
-        embeddings_by_shape: List of synthetic embedding arrays, one per shape
-                             Each array has shape (n_samples_for_that_shape, 400)
-        metadata_by_shape: List of metadata DataFrames, one per shape
-                           Each has 'distribution_id' column and shape-specific params
-        group_names: Shape names matching the order of input lists
-                     (e.g., ['circle', 'ellipse', 'irregular'])
-        runner: Optional existing ExperimentRunner to reuse (for subsequent iterations)
-                If None, creates a new runner
+        embeddings_per_simulation: List of synthetic embedding arrays, one per simulation type
+                                   Each array has shape (n_samples_for_that_type, 400)
+        metadata_per_simulation: List of metadata DataFrames, one per simulation type
+                                 Each has 'distribution_id' column and type-specific params
 
     Returns:
         suggestions: List of (dist_id, params_dict) suggestions for next iteration
-        runner: The ExperimentRunner instance (pass this back for next iteration)
 
     Example:
         >>> from scripts.run_experiment import run_optimizer_iteration
-        >>> from pathlib import Path
         >>>
-        >>> # First iteration
-        >>> suggestions, runner = run_optimizer_iteration(
-        ...     config_path=Path('config.yaml'),
+        >>> # Each iteration
+        >>> suggestions = run_optimizer_iteration(
         ...     real_embeddings=real_embs,
-        ...     embeddings_by_shape=[circle_embs, ellipse_embs, irregular_embs],
-        ...     metadata_by_shape=[circle_df, ellipse_df, irregular_df],
-        ...     group_names=['circle', 'ellipse', 'irregular']
-        ... )
-        >>>
-        >>> # Subsequent iterations - reuse runner for efficiency
-        >>> suggestions, runner = run_optimizer_iteration(
-        ...     config_path=Path('config.yaml'),
-        ...     real_embeddings=real_embs,
-        ...     embeddings_by_shape=[new_circle_embs, new_ellipse_embs, new_irregular_embs],
-        ...     metadata_by_shape=[new_circle_df, new_ellipse_df, new_irregular_df],
-        ...     group_names=['circle', 'ellipse', 'irregular'],
-        ...     runner=runner  # Reuse!
+        ...     embeddings_per_simulation=[circle_embs, ellipse_embs, irregular_embs],
+        ...     metadata_per_simulation=[circle_df, ellipse_df, irregular_df]
         ... )
     """
     import pandas as pd
@@ -154,19 +132,25 @@ def run_optimizer_iteration(
         infer_bounds_from_metadata
     )
 
+    # Hardcoded configuration (from experiment_config.yaml)
+    group_names = ['circle', 'ellipse', 'irregular']
+
+    # Note: config_path still needed by ExperimentRunner but won't be used
+    # TODO: Refactor ExperimentRunner to accept config dict instead of path
+    config_path = None  # Placeholder
+
     # Convert client format to optimizer format
     synthetic_embeddings, metadata_df = prepare_client_data_for_optimizer(
-        embeddings_by_shape, metadata_by_shape, group_names
+        embeddings_per_simulation, metadata_per_simulation, group_names
     )
 
     # Extract distributions and infer bounds
     distributions = load_distributions_from_metadata(metadata_df)
     param_bounds = infer_bounds_from_metadata(metadata_df, group_names)
 
-    # Create or reuse runner
-    if runner is None:
-        runner = create_runner(config_path, param_bounds, group_names)
-        runner.set_real_embeddings(real_embeddings)
+    # Create runner (TODO: add state management for runner reuse)
+    runner = create_runner(config_path, param_bounds, group_names)
+    runner.set_real_embeddings(real_embeddings)
 
     # Run iteration
     suggestions = run_iteration(
@@ -265,11 +249,9 @@ if __name__ == '__main__':
 
     print(f"\n[Running Optimizer] Using high-level API...")
     suggestions = run_optimizer_iteration(
-        config_path=config_path,
         real_embeddings=real_embeddings,
-        embeddings_by_shape=[circle_embeddings, ellipse_embeddings, irregular_embeddings],
-        metadata_by_shape=[circle_metadata, ellipse_metadata, irregular_metadata],
-        group_names=group_names
+        embeddings_per_simulation=[circle_embeddings, ellipse_embeddings, irregular_embeddings],
+        metadata_per_simulation=[circle_metadata, ellipse_metadata, irregular_metadata]
     )
 
     # ================================================================
