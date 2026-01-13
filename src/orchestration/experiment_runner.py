@@ -13,7 +13,6 @@ from typing import Dict, List, Tuple
 from ..optimization.metrics import compute_per_param_set_metrics
 from ..optimization.optuna_optimizer import OptunaOptimizer
 from ..utils.bounds_inference import get_param_bounds
-from ..visualization.experiment_reporter import ExperimentReporter
 from .iteration_manager import IterationManager
 
 
@@ -57,9 +56,6 @@ class ExperimentRunner:
             param_bounds=param_bounds,
             group_names=group_names
         )
-
-        # Experiment reporter for visualizations
-        self.reporter = ExperimentReporter(Path(self.config['experiment_dir']), config=self.config)
 
         # Real embeddings reference (set via set_real_embeddings)
         self.real_embeddings_400d = None
