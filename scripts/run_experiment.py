@@ -5,86 +5,26 @@ This module provides a pure Python API for running optimization iterations.
 The external system generates all data on-the-fly and calls these functions directly.
 
 Usage:
-    from scripts.run_experiment import create_runner, run_iteration
-
-    # One-time setup
-    runner = create_runner(config_path, param_bounds, group_names)
-    runner.set_real_embeddings(real_embeddings_400d)
+    from scripts.run_experiment import run_optimizer_iteration
 
     # Each iteration
-    suggestions = run_iteration(
-        runner=runner,
-        current_distributions=distributions,  # [(dist_id, params_dict), ...]
-        synthetic_embeddings_400d=embeddings,  # np.ndarray
-        synthetic_metadata=metadata            # List[Dict]
+    suggestions = run_optimizer_iteration(
+        real_embeddings=real_embs,
+        embeddings_per_simulation=[circle_embs, ellipse_embs, irregular_embs],
+        metadata_per_simulation=[circle_df, ellipse_df, irregular_df]
     )
 """
 
 import numpy as np
-from pathlib import Path
 from typing import List, Tuple, Dict
 
-from src.orchestration.experiment_runner import ExperimentRunner
-
-
-def create_runner(
-    config_path: Path,
-    param_bounds: Dict[str, Dict],
-    group_names: List[str]
-) -> ExperimentRunner:
-    """
-    Create and initialize an ExperimentRunner.
-
-    This is called once at the start of the optimization process.
-
-    Args:
-        config_path: Path to experiment config YAML
-        param_bounds: Parameter bounds dict {group_name: {param: [min, max]}}
-        group_names: List of group names (e.g., ['circle', 'ellipse', 'irregular'])
-
-    Returns:
-        Initialized ExperimentRunner instance
-    """
-    runner = ExperimentRunner(
-        config_path=config_path,
-        param_bounds=param_bounds,
-        group_names=group_names
-    )
-    return runner
-
-
-def run_iteration(
-    runner: ExperimentRunner,
-    current_distributions: List[Tuple[str, Dict]],
-    synthetic_embeddings_400d: np.ndarray,
-    synthetic_metadata: List[Dict]
-) -> List[Tuple[str, Dict]]:
-    """
-    Run a single optimization iteration with in-memory data.
-
-    Args:
-        runner: ExperimentRunner instance (from create_runner)
-        current_distributions: What was evaluated [(dist_id, params_dict), ...]
-                               params_dict contains shape_logit_* and {shape}__{param} keys
-        synthetic_embeddings_400d: Embeddings array (N, 400)
-        synthetic_metadata: Metadata list with distribution_id for grouping
-
-    Returns:
-        next_suggestions: What to try next [(dist_id, params_dict), ...]
-    """
-    if runner.real_embeddings_400d is None:
-        raise ValueError(
-            "Real embeddings not set. Call runner.set_real_embeddings() first."
-        )
-
-    # Run iteration
-    next_suggestions = runner.run_iteration(
-        current_distributions=current_distributions,
-        synthetic_embeddings_400d=synthetic_embeddings_400d,
-        synthetic_metadata=synthetic_metadata
-    )
-
-    return next_suggestions
+from src.production.experiment_runner import ExperimentRunner
+from src.production.data_utils import (
+    prepare_client_data_for_optimizer,
+    load_distributions_from_metadata,
+    infer_bounds_from_metadata
+)
+from src.production.config import DEFAULT_CONFIG, GROUP_NAMES
 
 
 def run_optimizer_iteration(
@@ -125,19 +65,9 @@ def run_optimizer_iteration(
         ...     metadata_per_simulation=[circle_df, ellipse_df, irregular_df]
         ... )
     """
-    import pandas as pd
-    from src.utils.data_preparation import prepare_client_data_for_optimizer
-    from src.utils.bounds_inference import (
-        load_distributions_from_metadata,
-        infer_bounds_from_metadata
-    )
-
-    # Hardcoded configuration (from experiment_config.yaml)
-    group_names = ['circle', 'ellipse', 'irregular']
-
-    # Note: config_path still needed by ExperimentRunner but won't be used
-    # TODO: Refactor ExperimentRunner to accept config dict instead of path
-    config_path = None  # Placeholder
+    # Hardcoded configuration
+    config = DEFAULT_CONFIG
+    group_names = GROUP_NAMES
 
     # Convert client format to optimizer format
     synthetic_embeddings, metadata_df = prepare_client_data_for_optimizer(
@@ -148,13 +78,16 @@ def run_optimizer_iteration(
     distributions = load_distributions_from_metadata(metadata_df)
     param_bounds = infer_bounds_from_metadata(metadata_df, group_names)
 
-    # Create runner (TODO: add state management for runner reuse)
-    runner = create_runner(config_path, param_bounds, group_names)
+    # Create runner with dict config
+    runner = ExperimentRunner(
+        config=config,
+        param_bounds=param_bounds,
+        group_names=group_names
+    )
     runner.set_real_embeddings(real_embeddings)
 
     # Run iteration
-    suggestions = run_iteration(
-        runner=runner,
+    suggestions = runner.run_iteration(
         current_distributions=distributions,
         synthetic_embeddings_400d=synthetic_embeddings,
         synthetic_metadata=metadata_df.to_dict('records')
@@ -171,12 +104,8 @@ if __name__ == '__main__':
     print("PRODUCTION API - HIGH-LEVEL USAGE EXAMPLE")
     print("=" * 60)
 
-    # Setup
-    config_path = Path('configs/experiment_config.yaml')
-    group_names = ['circle', 'ellipse', 'irregular']
-
     # ================================================================
-    # STEP 1: Client provides per-shape data (their format)
+    # STEP 1: Client provides per-simulation data (their format)
     # ================================================================
 
     # Client provides 3 embedding arrays (one per shape)
@@ -235,7 +164,7 @@ if __name__ == '__main__':
         'position_spread_std': [0.051]*5 + [0.062]*7 + [0.073]*6
     })
 
-    print(f"\n[Client Data] Provided per-shape data:")
+    print(f"\n[Client Data] Provided per-simulation data:")
     print(f"  Circle: {circle_embeddings.shape[0]} samples, metadata shape {circle_metadata.shape}")
     print(f"  Ellipse: {ellipse_embeddings.shape[0]} samples, metadata shape {ellipse_metadata.shape}")
     print(f"  Irregular: {irregular_embeddings.shape[0]} samples, metadata shape {irregular_metadata.shape}")
