@@ -15,7 +15,6 @@ from typing import Dict, List, Tuple
 
 from .metrics import compute_per_param_set_metrics
 from .optimizer import OptunaOptimizer
-from .iteration_manager import IterationManager
 
 
 class ExperimentRunner:
@@ -42,10 +41,7 @@ class ExperimentRunner:
         self.config = config
         self._setup_experiment_dir()
 
-        # Iteration manager
-        self.iteration_manager = IterationManager(Path(self.config['experiment_dir']))
-
-        # Optuna optimizer
+        # Optuna optimizer (creates its own directory and SQLite DB)
         self.optimizer = OptunaOptimizer(
             experiment_dir=Path(self.config['experiment_dir']),
             config=self.config,
@@ -55,9 +51,6 @@ class ExperimentRunner:
 
         # Real embeddings reference (set via set_real_embeddings)
         self.real_embeddings_400d = None
-
-        # Track embeddings by iteration for visualization
-        self.synthetic_embeddings_by_iter = {}
 
         print(f"Initialized ExperimentRunner")
         print(f"Experiment directory: {self.config['experiment_dir']}")
