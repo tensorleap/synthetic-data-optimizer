@@ -134,3 +134,15 @@ class ExperimentRunner:
         )
 
         return next_suggestions
+
+    def get_best_trials(self, top_n: int = None) -> List[Tuple[str, Dict]]:
+        """
+        Get the best trials seen so far.
+
+        Args:
+            top_n: Number of best trials to return. If None, returns all.
+
+        Returns:
+            List of (trial_id, params_dict) tuples with probabilities
+        """
+        return self.optimizer.get_best_trials_as_distributions(top_n=top_n)

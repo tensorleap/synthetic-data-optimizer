@@ -87,7 +87,7 @@ def run_optimizer_iteration(
     real_embeddings: np.ndarray,
     embeddings_per_simulation: List[np.ndarray],
     metadata_per_simulation: List['pd.DataFrame']
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     High-level function: run one optimization iteration from client data format.
 
@@ -100,7 +100,8 @@ def run_optimizer_iteration(
     2. Extract distributions and infer bounds from metadata
     3. Create runner (or reuse existing one)
     4. Run optimization iteration
-    5. Convert suggestions to CSV format
+    5. Get best trials seen so far
+    6. Convert both to CSV format
 
     Args:
         real_embeddings: Real data embeddings (M, 400)
@@ -111,8 +112,12 @@ def run_optimizer_iteration(
                                  Parameters are inferred from DataFrame column names
 
     Returns:
-        DataFrame with columns:
-        - distribution_id: suggested distribution ID
+        Tuple of (suggestions_df, best_trials_df):
+        - suggestions_df: Next iteration recommendations
+        - best_trials_df: Best trials seen so far
+
+        Both DataFrames have columns:
+        - distribution_id: distribution/trial ID
         - simulation_type: simulation name (simulation_1, simulation_2, etc.)
         - shape_probability: probability for this simulation
         - {param_name}: parameter values (without simulation prefix)
@@ -121,12 +126,13 @@ def run_optimizer_iteration(
         >>> from scripts.run_experiment import run_optimizer_iteration
         >>>
         >>> # Each iteration with any number of simulation types
-        >>> suggestions_df = run_optimizer_iteration(
+        >>> suggestions_df, best_trials_df = run_optimizer_iteration(
         ...     real_embeddings=real_embs,
         ...     embeddings_per_simulation=[sim1_embs, sim2_embs, sim3_embs],
         ...     metadata_per_simulation=[sim1_df, sim2_df, sim3_df]
         ... )
-        >>> suggestions_df.to_csv('suggestions.csv', index=False)
+        >>> suggestions_df.to_csv('next_suggestions.csv', index=False)
+        >>> best_trials_df.to_csv('best_trials.csv', index=False)
     """
     # Hardcoded configuration
     config = DEFAULT_CONFIG
@@ -154,10 +160,15 @@ def run_optimizer_iteration(
         synthetic_metadata=metadata_df.to_dict('records')
     )
 
-    # Convert to CSV format
-    suggestions_df = suggestions_to_csv_format(suggestions, group_names)
+    # Get best trials (same number as suggestions)
+    n_suggestions = len(suggestions)
+    best_trials = runner.get_best_trials(top_n=n_suggestions)
 
-    return suggestions_df
+    # Convert both to CSV format
+    suggestions_df = suggestions_to_csv_format(suggestions, group_names)
+    best_trials_df = suggestions_to_csv_format(best_trials, group_names)
+
+    return suggestions_df, best_trials_df
 
 
 if __name__ == '__main__':
@@ -243,7 +254,7 @@ if __name__ == '__main__':
 
     print(f"\n[Running Optimizer] Using high-level API...")
     print(f"  -> Auto-generating simulation names: simulation_1, simulation_2, simulation_3")
-    suggestions_df = run_optimizer_iteration(
+    suggestions_df, best_trials_df = run_optimizer_iteration(
         real_embeddings=real_embeddings,
         embeddings_per_simulation=[sim1_embeddings, sim2_embeddings, sim3_embeddings],
         metadata_per_simulation=[sim1_metadata, sim2_metadata, sim3_metadata]
@@ -256,12 +267,21 @@ if __name__ == '__main__':
     print("\n" + "=" * 60)
     print("EXAMPLE COMPLETE")
     print("=" * 60)
-    print(f"\nReceived suggestions as DataFrame with {len(suggestions_df)} rows")
-    print(f"  ({len(suggestions_df) // 3} distributions × 3 simulations)")
-    print(f"\nDataFrame shape: {suggestions_df.shape}")
-    print(f"Columns: {list(suggestions_df.columns)}")
+
+    print(f"\n[NEXT ITERATION SUGGESTIONS]")
+    print(f"Received {len(suggestions_df)} rows ({len(suggestions_df) // 3} distributions × 3 simulations)")
+    print(f"Shape: {suggestions_df.shape}, Columns: {list(suggestions_df.columns)}")
     print(f"\nFirst 6 rows (2 distributions):")
     print(suggestions_df.head(6).to_string(index=False))
-    print(f"\n  -> Can be saved with: suggestions_df.to_csv('suggestions.csv', index=False)")
+
+    print(f"\n[BEST TRIALS SEEN SO FAR]")
+    print(f"Top {len(best_trials_df) // 3} best trials ({len(best_trials_df)} rows)")
+    print(f"Shape: {best_trials_df.shape}")
+    print(f"\nFirst 6 rows (2 best trials):")
+    print(best_trials_df.head(6).to_string(index=False))
+
+    print(f"\n  -> Save with:")
+    print(f"     suggestions_df.to_csv('next_suggestions.csv', index=False)")
+    print(f"     best_trials_df.to_csv('best_trials.csv', index=False)")
 
 

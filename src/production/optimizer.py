@@ -232,6 +232,47 @@ class OptunaOptimizer:
         """
         return self.study.best_trials
 
+    def get_best_trials_as_distributions(
+        self,
+        top_n: int = None
+    ) -> List[Tuple[str, Dict]]:
+        """
+        Get the best trials seen so far as distribution specifications.
+
+        For single-objective: returns trials sorted by metric (best first)
+        For multi-objective: returns Pareto front trials
+
+        Args:
+            top_n: Number of best trials to return. If None, returns all best trials.
+                   For single-objective, this limits the sorted list.
+                   For multi-objective, this limits the Pareto front.
+
+        Returns:
+            List of (dist_id, params_dict) tuples with probabilities (not logits)
+        """
+        # Get best trials
+        if len(self.optimization_metrics) == 1:
+            # Single objective: sort all completed trials by metric
+            completed = [t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+            sorted_trials = sorted(completed, key=lambda t: t.values[0])
+            best_trials = sorted_trials[:top_n] if top_n else sorted_trials
+        else:
+            # Multi-objective: use Pareto front
+            pareto_trials = self.get_pareto_front()
+            best_trials = pareto_trials[:top_n] if top_n else pareto_trials
+
+        # Convert to distribution format with probabilities
+        distributions = []
+        for trial in best_trials:
+            dist_id = f"trial_{trial.number}"
+
+            # Convert logits to probabilities for output
+            params_with_probs = self.convert_logits_to_probs_in_params(trial.params)
+
+            distributions.append((dist_id, params_with_probs))
+
+        return distributions
+
     @staticmethod
     def sample_counts_to_logits(sample_counts: Dict[str, int]) -> Dict[str, float]:
         """
