@@ -17,28 +17,27 @@ import math
 
 def prepare_client_data_for_optimizer(
     embeddings_by_shape: List[np.ndarray],
-    metadata_by_shape: List[pd.DataFrame],
-    group_names: List[str]
-) -> Tuple[np.ndarray, pd.DataFrame]:
+    metadata_by_shape: List[pd.DataFrame]
+) -> Tuple[np.ndarray, pd.DataFrame, List[str]]:
     """
-    Convert per-shape client data to unified optimizer format.
+    Convert per-simulation client data to unified optimizer format.
 
-    The client provides separate arrays and DataFrames for each shape. This function
-    merges them into a single embeddings array and unified metadata DataFrame with
-    distribution_id, shape logits, and all shape parameters.
+    The client provides separate arrays and DataFrames for each simulation type.
+    This function auto-generates simulation names (simulation_1, simulation_2, etc.)
+    based on the input list length, then merges data into unified format.
 
     Args:
-        embeddings_by_shape: List of (n_samples, 400) arrays, one per shape
-        metadata_by_shape: List of DataFrames with distribution_id and shape-specific params
-        group_names: Shape names matching the order of input lists
-                     (e.g., ['circle', 'ellipse', 'irregular'])
+        embeddings_by_shape: List of (n_samples, 400) arrays, one per simulation type
+        metadata_by_shape: List of DataFrames with distribution_id and simulation-specific params
+                          Parameters are inferred from DataFrame column names (excluding distribution_id)
 
     Returns:
         synthetic_embeddings: (total_samples, 400) concatenated array
         metadata_df: Unified DataFrame with columns:
                      - distribution_id: int
-                     - shape_logit_{shape}: float for each shape
-                     - {shape}__{param}: float for each shape parameter
+                     - shape_logit_{simulation_name}: float for each simulation
+                     - {simulation_name}__{param}: float for each simulation parameter
+        group_names: List of auto-generated simulation names ['simulation_1', 'simulation_2', ...]
     """
     if len(embeddings_by_shape) != len(metadata_by_shape):
         raise ValueError(
@@ -46,19 +45,16 @@ def prepare_client_data_for_optimizer(
             f"{len(metadata_by_shape)} metadata DataFrames"
         )
 
-    if len(embeddings_by_shape) != len(group_names):
-        raise ValueError(
-            f"Mismatch: {len(embeddings_by_shape)} data sources but "
-            f"{len(group_names)} group names"
-        )
+    # Auto-generate simulation names: simulation_1, simulation_2, etc.
+    group_names = [f"simulation_{i+1}" for i in range(len(embeddings_by_shape))]
 
-    # Count samples per distribution per shape
+    # Count samples per distribution per simulation
     sample_counts = _count_samples_per_distribution(metadata_by_shape, group_names)
 
     # Compute shape logits for each distribution
     logits_by_dist = _compute_shape_logits(sample_counts, group_names)
 
-    # Merge parameters from all shape DataFrames
+    # Merge parameters from all simulation DataFrames
     params_by_dist = _merge_shape_parameters(metadata_by_shape, group_names)
 
     # Build unified metadata rows (one per sample)
@@ -68,7 +64,7 @@ def prepare_client_data_for_optimizer(
         for _, row in metadata_df.iterrows():
             dist_id = int(row['distribution_id'])
 
-            # Build row: dist_id + logits + all shape params
+            # Build row: dist_id + logits + all simulation params
             unified_row = {
                 'distribution_id': dist_id,
                 **logits_by_dist[dist_id],
@@ -89,7 +85,7 @@ def prepare_client_data_for_optimizer(
             f"{len(metadata_df_unified)} metadata rows"
         )
 
-    return synthetic_embeddings, metadata_df_unified
+    return synthetic_embeddings, metadata_df_unified, group_names
 
 
 def _count_samples_per_distribution(

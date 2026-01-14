@@ -17,6 +17,6 @@ No dependencies on:
 - Data generators or visualization tools
 """
 
-from .config import DEFAULT_CONFIG, GROUP_NAMES
+from .config import DEFAULT_CONFIG
 
-__all__ = ['DEFAULT_CONFIG', 'GROUP_NAMES']
+__all__ = ['DEFAULT_CONFIG']

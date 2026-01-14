@@ -30,7 +30,6 @@ class OptunaOptimizer:
         experiment_dir: Path,
         config: Dict,
         param_bounds: Dict[str, Dict],
-        group_names: List[str],
         logit_bounds: Tuple[float, float] = (-5.0, 5.0)
     ):
         """
@@ -39,9 +38,9 @@ class OptunaOptimizer:
         Args:
             experiment_dir: Path to experiment directory for SQLite storage
             config: Experiment configuration dict with optimization_metrics, etc.
-            param_bounds: Dict mapping group names to their parameter bounds
-                          e.g., {'circle': {'void_count_mean': [1.0, 10.0], ...}}
-            group_names: Names for each group
+            param_bounds: Dict mapping simulation names to their parameter bounds
+                          e.g., {'simulation_1': {'void_count_mean': [1.0, 10.0], ...}}
+                          Simulation names (group_names) are inferred from the keys
             logit_bounds: Min/max bounds for shape logits (default: -5.0 to 5.0)
         """
         self.experiment_dir = Path(experiment_dir)
@@ -50,15 +49,11 @@ class OptunaOptimizer:
         self.logit_bounds = logit_bounds
 
         # Validate inputs
-        if not param_bounds or not group_names:
-            raise ValueError("param_bounds and group_names are required")
-        if set(param_bounds.keys()) != set(group_names):
-            raise ValueError(
-                f"param_bounds keys {set(param_bounds.keys())} must match "
-                f"group_names {set(group_names)}"
-            )
+        if not param_bounds:
+            raise ValueError("param_bounds is required and cannot be empty")
 
-        self.group_names = group_names
+        # Infer group names from param_bounds keys (sorted for deterministic order)
+        self.group_names = sorted(param_bounds.keys())
         self.param_bounds = param_bounds
 
         # Get optimization metrics from config
@@ -297,6 +292,43 @@ class OptunaOptimizer:
 
         return {k: v / total for k, v in exp_logits.items()}
 
+    @staticmethod
+    def convert_logits_to_probs_in_params(params: Dict) -> Dict:
+        """
+        Convert shape_logit_* keys to shape_prob_* keys with softmax probabilities.
+
+        This is for output formatting only - internally the optimizer still uses logits.
+
+        Args:
+            params: Dict with shape_logit_* and other parameter keys
+
+        Returns:
+            New dict with shape_prob_* instead of shape_logit_*, plus all other params
+        """
+        # Extract logits and compute probabilities
+        logit_prefix = 'shape_logit_'
+        logits = {}
+        other_params = {}
+
+        for key, value in params.items():
+            if key.startswith(logit_prefix):
+                shape = key[len(logit_prefix):]
+                logits[shape] = value
+            else:
+                other_params[key] = value
+
+        # Compute softmax probabilities
+        if logits:
+            max_logit = max(logits.values())
+            exp_logits = {k: math.exp(v - max_logit) for k, v in logits.items()}
+            total = sum(exp_logits.values())
+            probs = {f'shape_prob_{k}': v / total for k, v in exp_logits.items()}
+        else:
+            probs = {}
+
+        # Return combined dict with probabilities + other params
+        return {**probs, **other_params}
+
     def suggest_next_distributions(
         self,
         current_distributions: List[Tuple[str, Dict]],
@@ -365,13 +397,16 @@ class OptunaOptimizer:
 
         for i in range(n_distributions):
             trial = self.study.ask()
-            params = self._define_joint_search_space(trial)
+            params_with_logits = self._define_joint_search_space(trial)
             dist_id = f"dist_{completed_count + i}"
-            suggestions.append((dist_id, params))
+
+            # Convert logits to probabilities for output only
+            params_with_probs = self.convert_logits_to_probs_in_params(params_with_logits)
+            suggestions.append((dist_id, params_with_probs))
             self.pending_trials.append(trial)
 
             # Log suggestion with probabilities
-            probs = self.logits_to_probabilities(params)
+            probs = self.logits_to_probabilities(params_with_logits)
             probs_str = ', '.join([f"{k}={v:.2%}" for k, v in sorted(probs.items())])
 
         pareto_size = len(self.get_pareto_front())

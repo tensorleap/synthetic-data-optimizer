@@ -5,7 +5,7 @@ All configuration values are hardcoded (no YAML dependency).
 Based on configs/experiment_config.yaml.
 """
 
-from typing import Dict, List
+from typing import Dict
 
 # Default experiment configuration
 DEFAULT_CONFIG: Dict = {
@@ -31,6 +31,3 @@ DEFAULT_CONFIG: Dict = {
     },
     'top_n_distributions': 10,
 }
-
-# Simulation group names
-GROUP_NAMES: List[str] = ['circle', 'ellipse', 'irregular']

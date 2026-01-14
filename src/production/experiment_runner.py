@@ -27,16 +27,15 @@ class ExperimentRunner:
     def __init__(
         self,
         config: Dict,
-        param_bounds: Dict[str, Dict],
-        group_names: List[str]
+        param_bounds: Dict[str, Dict]
     ):
         """
         Initialize experiment runner.
 
         Args:
             config: Experiment configuration dict (from config.DEFAULT_CONFIG)
-            param_bounds: Parameter bounds dict {group_name: {param: [min, max]}}
-            group_names: List of group names (e.g., ['circle', 'ellipse', 'irregular'])
+            param_bounds: Parameter bounds dict {simulation_name: {param: [min, max]}}
+                         Simulation names are inferred from param_bounds keys
         """
         self.config = config
         self._setup_experiment_dir()
@@ -45,8 +44,7 @@ class ExperimentRunner:
         self.optimizer = OptunaOptimizer(
             experiment_dir=Path(self.config['experiment_dir']),
             config=self.config,
-            param_bounds=param_bounds,
-            group_names=group_names
+            param_bounds=param_bounds
         )
 
         # Real embeddings reference (set via set_real_embeddings)
