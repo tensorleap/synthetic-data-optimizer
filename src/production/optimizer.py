@@ -77,8 +77,8 @@ class OptunaOptimizer:
             n_startup_trials = optimizer_config['n_startup_trials']
         else:
             # Count total params: logits + all shape params
-            total_params = len(group_names)  # logits
-            for group_bounds in param_bounds.values():
+            total_params = len(self.group_names)  # logits
+            for group_bounds in self.param_bounds.values():
                 total_params += len(group_bounds)
             n_startup_trials = max(50, 3 * total_params)
 
