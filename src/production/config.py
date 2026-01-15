@@ -9,7 +9,7 @@ from typing import Dict
 
 # Default experiment configuration
 DEFAULT_CONFIG: Dict = {
-    'experiment_name': 'void_optimization',
+    'experiment_name': 'synth_data_optimization',
     'experiments_base_dir': 'data/experiments',
     'random_seed': 42,
     'iteration_batch_size': 10,

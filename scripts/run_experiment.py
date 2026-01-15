@@ -107,8 +107,10 @@ def run_optimizer_iteration(
         real_embeddings: Real data embeddings (M, 400)
         embeddings_per_simulation: List of synthetic embedding arrays, one per simulation type
                                    Each array has shape (n_samples_for_that_type, 400)
+                                   Together they represent ONE joint distribution
         metadata_per_simulation: List of metadata DataFrames, one per simulation type
-                                 Each has 'distribution_id' column and simulation-specific params
+                                 Each DataFrame contains parameters for that simulation type
+                                 All rows in a DataFrame should have identical parameter values
                                  Parameters are inferred from DataFrame column names
 
     Returns:
@@ -184,66 +186,66 @@ if __name__ == '__main__':
     # ================================================================
 
     # Client provides 3 embedding arrays (one per simulation type)
-    # Distribution 0: 12 sim1, 8 sim2, 5 sim3 samples
-    # Distribution 1: 8 sim1, 10 sim2, 7 sim3 samples
-    # Distribution 2: 10 sim1, 9 sim2, 6 sim3 samples
+    # ONE distribution represented across 3 simulation types
 
-    # Simulation 1 embeddings (30 total)
+    # Simulation 1: 30 samples
     sim1_embeddings = np.random.randn(30, 400).astype(np.float32)
 
-    # Simulation 2 embeddings (27 total)
-    sim2_embeddings = np.random.randn(27, 400).astype(np.float32)
+    # Simulation 2: 20 samples
+    sim2_embeddings = np.random.randn(20, 400).astype(np.float32)
 
-    # Simulation 3 embeddings (18 total)
-    sim3_embeddings = np.random.randn(18, 400).astype(np.float32)
+    # Simulation 3: 25 samples
+    sim3_embeddings = np.random.randn(25, 400).astype(np.float32)
 
     # Client provides 3 metadata DataFrames (one per simulation) with simulation-specific params
     # Each simulation can have different parameter sets (column names)
+    # All rows in a DataFrame should have identical parameter values (replicated for each sample)
     sim1_metadata = pd.DataFrame({
-        'distribution_id': [0]*12 + [1]*8 + [2]*10,
-        'void_count_mean': [5.2]*12 + [6.1]*8 + [7.3]*10,
-        'base_size_mean': [10.3]*12 + [11.2]*8 + [12.5]*10,
-        'base_size_std': [2.1]*12 + [2.4]*8 + [2.8]*10,
-        'center_x_mean': [0.51]*12 + [0.48]*8 + [0.53]*10,
-        'center_x_std': [0.11]*12 + [0.13]*8 + [0.16]*10,
-        'center_y_mean': [0.52]*12 + [0.49]*8 + [0.54]*10,
-        'center_y_std': [0.11]*12 + [0.13]*8 + [0.16]*10,
-        'position_spread_mean': [0.15]*12 + [0.18]*8 + [0.21]*10,
-        'position_spread_std': [0.051]*12 + [0.062]*8 + [0.073]*10
+        'void_count_mean': [5.2] * 30,
+        'base_size_mean': [10.3] * 30,
+        'base_size_std': [2.1] * 30,
+        'center_x_mean': [0.51] * 30,
+        'center_x_std': [0.11] * 30,
+        'center_y_mean': [0.52] * 30,
+        'center_y_std': [0.11] * 30,
+        'position_spread_mean': [0.15] * 30,
+        'position_spread_std': [0.051] * 30,
+        'void_shape': ['circle'] * 30  # Categorical parameter
     })
 
     sim2_metadata = pd.DataFrame({
-        'distribution_id': [0]*8 + [1]*10 + [2]*9,
-        'void_count_mean': [4.3]*8 + [5.2]*10 + [6.4]*9,
-        'base_size_mean': [12.4]*8 + [14.3]*10 + [15.6]*9,
-        'base_size_std': [2.1]*8 + [2.4]*10 + [2.8]*9,
-        'rotation_mean': [45.5]*8 + [90.8]*10 + [180.7]*9,
-        'rotation_std': [15.2]*8 + [20.3]*10 + [30.4]*9,
-        'center_x_mean': [0.51]*8 + [0.48]*10 + [0.53]*9,
-        'center_x_std': [0.11]*8 + [0.13]*10 + [0.16]*9,
-        'center_y_mean': [0.52]*8 + [0.49]*10 + [0.54]*9,
-        'blah': [0.11]*8 + [0.13]*10 + [0.16]*9,
-        'position_spread_mean': [0.15]*8 + [0.18]*10 + [0.21]*9,
-        'position_spread_std': [0.051]*8 + [0.062]*10 + [0.073]*9
+        'void_count_mean': [4.3] * 20,
+        'base_size_mean': [12.4] * 20,
+        'base_size_std': [2.1] * 20,
+        'rotation_mean': [45.5] * 20,  # Only sim2 has rotation
+        'rotation_std': [15.2] * 20,
+        'center_x_mean': [0.51] * 20,
+        'center_x_std': [0.11] * 20,
+        'center_y_mean': [0.52] * 20,
+        'center_y_std': [0.11] * 20,
+        'position_spread_mean': [0.15] * 20,
+        'position_spread_std': [0.051] * 20,
+        'void_shape': ['ellipse'] * 20  # Categorical parameter
     })
 
     sim3_metadata = pd.DataFrame({
-        'distribution_id': [0]*5 + [1]*7 + [2]*6,
-        'void_count_mean': [3.4]*5 + [4.3]*7 + [5.5]*6,
-        'base_size_mean': [8.5]*5 + [9.4]*7 + [10.7]*6,
-        'base_size_max': [2.1]*5 + [2.4]*7 + [2.8]*6,
-        'center_x_mean': [0.51]*5 + [0.48]*7 + [0.53]*6,
-        'center_x_std': [0.11]*5 + [0.13]*7 + [0.16]*6,
-        'center_y_mean': [0.52]*5 + [0.49]*7 + [0.54]*6,
-        'center_y_std': [0.11]*5 + [0.13]*7 + [0.16]*6,
-        'position_spread_mean': [0.15]*5 + [0.18]*7 + [0.21]*6,
-        'position_spread_std': [0.051]*5 + [0.062]*7 + [0.073]*6
+        'void_count_mean': [3.4] * 25,
+        'base_size_mean': [8.5] * 25,
+        'base_size_std': [2.1] * 25,
+        'center_x_mean': [0.51] * 25,
+        'center_x_std': [0.11] * 25,
+        'center_y_mean': [0.52] * 25,
+        'center_y_std': [0.11] * 25,
+        'position_spread_mean': [0.15] * 25,
+        'position_spread_std': [0.051] * 25,
+        'void_shape': ['irregular'] * 25  # Categorical parameter
     })
 
-    print(f"\n[Client Data] Provided per-simulation data:")
-    print(f"  Simulation 1: {sim1_embeddings.shape[0]} samples, {len(sim1_metadata.columns)-1} params")
-    print(f"  Simulation 2: {sim2_embeddings.shape[0]} samples, {len(sim2_metadata.columns)-1} params")
-    print(f"  Simulation 3: {sim3_embeddings.shape[0]} samples, {len(sim3_metadata.columns)-1} params")
+    print(f"\n[Client Data] Provided ONE distribution with 3 simulation types:")
+    print(f"  Simulation 1: {sim1_embeddings.shape[0]} samples, {len(sim1_metadata.columns)} params")
+    print(f"  Simulation 2: {sim2_embeddings.shape[0]} samples, {len(sim2_metadata.columns)} params")
+    print(f"  Simulation 3: {sim3_embeddings.shape[0]} samples, {len(sim3_metadata.columns)} params")
+    print(f"  Total samples: {len(sim1_embeddings) + len(sim2_embeddings) + len(sim3_embeddings)}")
 
     # Create real embeddings
     real_embeddings = np.random.randn(100, 400).astype(np.float32)
@@ -265,23 +267,23 @@ if __name__ == '__main__':
     # ================================================================
 
     print("\n" + "=" * 60)
-    print("EXAMPLE COMPLETE")
-    print("=" * 60)
+    # print("EXAMPLE COMPLETE")
+    # print("=" * 60)
 
-    print(f"\n[NEXT ITERATION SUGGESTIONS]")
-    print(f"Received {len(suggestions_df)} rows ({len(suggestions_df) // 3} distributions × 3 simulations)")
-    print(f"Shape: {suggestions_df.shape}, Columns: {list(suggestions_df.columns)}")
-    print(f"\nFirst 6 rows (2 distributions):")
-    print(suggestions_df.head(6).to_string(index=False))
+    # print(f"\n[NEXT ITERATION SUGGESTIONS]")
+    # print(f"Received {len(suggestions_df)} rows ({len(suggestions_df) // 3} distributions × 3 simulations)")
+    # print(f"Shape: {suggestions_df.shape}, Columns: {list(suggestions_df.columns)}")
+    # print(f"\nFirst 6 rows (2 distributions):")
+    # print(suggestions_df.head(6).to_string(index=False))
 
-    print(f"\n[BEST TRIALS SEEN SO FAR]")
-    print(f"Top {len(best_trials_df) // 3} best trials ({len(best_trials_df)} rows)")
-    print(f"Shape: {best_trials_df.shape}")
-    print(f"\nFirst 6 rows (2 best trials):")
-    print(best_trials_df.head(6).to_string(index=False))
+    # print(f"\n[BEST TRIALS SEEN SO FAR]")
+    # print(f"Top {len(best_trials_df) // 3} best trials ({len(best_trials_df)} rows)")
+    # print(f"Shape: {best_trials_df.shape}")
+    # print(f"\nFirst 6 rows (2 best trials):")
+    # print(best_trials_df.head(6).to_string(index=False))
 
-    print(f"\n  -> Save with:")
-    print(f"     suggestions_df.to_csv('next_suggestions.csv', index=False)")
-    print(f"     best_trials_df.to_csv('best_trials.csv', index=False)")
+    # print(f"\n  -> Save with:")
+    # print(f"     suggestions_df.to_csv('next_suggestions.csv', index=False)")
+    # print(f"     best_trials_df.to_csv('best_trials.csv', index=False)")
 
 
