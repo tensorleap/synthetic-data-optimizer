@@ -30,4 +30,5 @@ DEFAULT_CONFIG: Dict = {
         'multivariate': True,
     },
     'top_n_distributions': 10,
+    'n_samples_to_generate': 5000,
 }

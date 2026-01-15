@@ -13,6 +13,23 @@ import numpy as np
 import pandas as pd
 from typing import List, Tuple, Dict, Any
 import math
+from itertools import product
+
+
+def _detect_sub_distributions(metadata_df: pd.DataFrame) -> pd.Series:
+    """
+    Detect sub-distributions within a source by grouping identical rows.
+
+    Rounds numeric columns to 3 decimal places before comparison.
+    Returns a Series mapping each row to its sub-distribution ID (0, 1, 2, ...).
+    """
+    df_rounded = metadata_df.copy()
+    for col in df_rounded.columns:
+        if pd.api.types.is_numeric_dtype(df_rounded[col]):
+            df_rounded[col] = df_rounded[col].round(3)
+
+    # Use factorize to assign IDs to unique parameter sets
+    return pd.factorize(df_rounded.apply(tuple, axis=1))[0]
 
 
 def prepare_client_data_for_optimizer(
@@ -22,21 +39,19 @@ def prepare_client_data_for_optimizer(
     """
     Convert per-simulation client data to unified optimizer format.
 
-    Supports both single and multiple distributions. Each simulation DataFrame
-    can contain multiple distributions marked by 'distribution_idx' column.
+    Creates joint distributions as Cartesian product of sub-distributions across sources.
+    Sub-distributions are detected by grouping identical rows (with 3 decimal places tolerance).
 
     Args:
-        embeddings_by_shape: List of (n_samples, 400) arrays, one per simulation type
-        metadata_by_shape: List of DataFrames with simulation-specific params
-                          Each DataFrame must have 'distribution_idx' column
-                          Samples with the same distribution_idx across all DataFrames
-                          belong to the same distribution
-                          All rows with same distribution_idx have identical parameter values
+        embeddings_by_shape: List of (n_samples, 400) arrays, one per source (simulation type)
+        metadata_by_shape: List of DataFrames with source-specific params
+                          Sub-distributions detected by grouping identical rows
+                          No distribution_idx column needed
 
     Returns:
         synthetic_embeddings: (total_samples, 400) concatenated array
         metadata_df: Unified DataFrame with columns:
-                     - distribution_id: int (renamed from distribution_idx)
+                     - distribution_id: int (joint distribution ID from Cartesian product)
                      - shape_logit_{simulation_name}: float for each simulation
                      - {simulation_name}__{param}: value for each simulation parameter
         group_names: List of auto-generated simulation names ['simulation_1', 'simulation_2', ...]
@@ -50,51 +65,87 @@ def prepare_client_data_for_optimizer(
     # Auto-generate simulation names: simulation_1, simulation_2, etc.
     group_names = [f"simulation_{i+1}" for i in range(len(embeddings_by_shape))]
 
-    # Verify all DataFrames have distribution_idx column
+    # Verify DataFrames are not empty
     for i, metadata_df in enumerate(metadata_by_shape):
-        if 'distribution_idx' not in metadata_df.columns:
-            raise ValueError(
-                f"DataFrame {i} (simulation_{i+1}) missing required 'distribution_idx' column"
-            )
         if len(metadata_df) == 0:
             raise ValueError(f"Empty DataFrame for simulation_{i+1}")
 
-    # Rename distribution_idx to distribution_id for internal consistency
-    metadata_by_shape_renamed = []
-    for metadata_df in metadata_by_shape:
-        df_copy = metadata_df.copy()
-        df_copy.rename(columns={'distribution_idx': 'distribution_id'}, inplace=True)
-        metadata_by_shape_renamed.append(df_copy)
+    # Step 1: Detect sub-distributions within each source
+    sub_dist_ids_by_source = []
+    sub_dist_params_by_source = []
 
-    # Step 1: Count samples per distribution per simulation
-    sample_counts = _count_samples_per_distribution(metadata_by_shape_renamed, group_names)
+    for sim_name, metadata_df in zip(group_names, metadata_by_shape):
+        # Detect sub-distributions
+        sub_dist_ids = _detect_sub_distributions(metadata_df)
+        sub_dist_ids_by_source.append(sub_dist_ids)
 
-    # Step 2: Compute shape logits for each distribution
-    logits_by_dist = _compute_shape_logits(sample_counts, group_names)
+        # Extract unique sub-distribution parameters
+        unique_sub_dists = {}
+        for sub_id in range(sub_dist_ids.max() + 1):
+            mask = sub_dist_ids == sub_id
+            first_row = metadata_df[mask].iloc[0]
 
-    # Step 3: Merge parameters from all simulation DataFrames
-    params_by_dist = _merge_shape_parameters(metadata_by_shape_renamed, group_names)
+            params = {}
+            for col in metadata_df.columns:
+                value = first_row[col]
+                if pd.api.types.is_numeric_dtype(metadata_df[col]):
+                    params[f'{sim_name}__{col}'] = float(value)
+                else:
+                    params[f'{sim_name}__{col}'] = value
 
-    # Step 4: Build unified metadata rows (one per sample)
-    # Note: params_by_dist already contains all simulation params with prefixes from _merge_shape_parameters
+            unique_sub_dists[sub_id] = params
+
+        sub_dist_params_by_source.append(unique_sub_dists)
+
+    # Step 2: Generate Cartesian product of sub-distributions
+    num_sub_dists_per_source = [len(params) for params in sub_dist_params_by_source]
+    sub_dist_ranges = [range(n) for n in num_sub_dists_per_source]
+    cartesian_product = list(product(*sub_dist_ranges))
+
+    # Step 3: For each joint distribution, collect samples and build metadata
     unified_metadata_rows = []
+    embedding_lists = []
 
-    for metadata_df in metadata_by_shape_renamed:
-        for _, row in metadata_df.iterrows():
-            dist_id = int(row['distribution_id'])
+    for joint_dist_id, sub_dist_combo in enumerate(cartesian_product):
+        # Collect samples from each source for this joint distribution
+        samples_for_this_dist = []
+        sample_counts_for_logits = {}
 
-            # Build row: dist_id + logits + all simulation params for this distribution
+        for source_idx, (sim_name, sub_dist_id) in enumerate(zip(group_names, sub_dist_combo)):
+            # Get samples belonging to this sub-distribution
+            mask = sub_dist_ids_by_source[source_idx] == sub_dist_id
+            source_embeddings = embeddings_by_shape[source_idx][mask]
+            samples_for_this_dist.append(source_embeddings)
+            sample_counts_for_logits[sim_name] = len(source_embeddings)
+
+        # Compute shape logits from sample counts
+        total_samples = sum(sample_counts_for_logits.values())
+        shape_logits = {}
+        for sim_name, count in sample_counts_for_logits.items():
+            prob = max(count / total_samples, 1e-6)
+            shape_logits[f'shape_logit_{sim_name}'] = math.log(prob)
+
+        # Merge parameters from all sources for this joint distribution
+        merged_params = {}
+        for source_idx, sub_dist_id in enumerate(sub_dist_combo):
+            merged_params.update(sub_dist_params_by_source[source_idx][sub_dist_id])
+
+        # Build metadata rows for all samples in this joint distribution
+        total_samples_in_joint = sum(len(arr) for arr in samples_for_this_dist)
+        for _ in range(total_samples_in_joint):
             unified_row = {
-                'distribution_id': dist_id,
-                **logits_by_dist[dist_id],
-                **params_by_dist[dist_id]
+                'distribution_id': joint_dist_id,
+                **shape_logits,
+                **merged_params
             }
             unified_metadata_rows.append(unified_row)
 
-    metadata_df_unified = pd.DataFrame(unified_metadata_rows)
+        # Collect embeddings
+        embedding_lists.extend(samples_for_this_dist)
 
-    # Concatenate embeddings in same order as metadata
-    synthetic_embeddings = np.concatenate(embeddings_by_shape, axis=0)
+    # Concatenate all embeddings
+    synthetic_embeddings = np.concatenate(embedding_lists, axis=0)
+    metadata_df_unified = pd.DataFrame(unified_metadata_rows)
 
     # Verify shapes match
     if len(synthetic_embeddings) != len(metadata_df_unified):

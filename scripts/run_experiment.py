@@ -30,7 +30,8 @@ from src.production.config import DEFAULT_CONFIG
 
 def suggestions_to_csv_format(
     suggestions: List[Tuple[str, Dict]],
-    group_names: List[str]
+    group_names: List[str],
+    n_samples_to_generate: int = 1000
 ) -> pd.DataFrame:
     """
     Convert optimizer suggestions from dictionary format to CSV format.
@@ -42,12 +43,13 @@ def suggestions_to_csv_format(
         suggestions: List of (dist_id, params_dict) tuples from optimizer
                     params_dict contains shape_prob_* and {simulation}__{param} keys
         group_names: List of simulation names (e.g., ['simulation_1', 'simulation_2'])
+        n_samples_to_generate: Total samples per distribution across all sources
 
     Returns:
         Single DataFrame with columns:
         - distribution_id: str (dist_3, dist_4, etc.)
         - simulation_type: str (simulation_1, simulation_2, etc.)
-        - shape_probability: float
+        - n_samples: int (number of samples to generate for this source)
         - {param_name}: float for each parameter (without simulation prefix)
 
     Example:
@@ -63,12 +65,15 @@ def suggestions_to_csv_format(
             prob_key = f'shape_prob_{sim_name}'
             prob = params.get(prob_key, 0.0)
 
+            # Convert probability to sample count
+            n_samples = int(round(prob * n_samples_to_generate))
+
             # Extract all parameters for this simulation
             param_prefix = f'{sim_name}__'
             row = {
                 'distribution_id': dist_id,
                 'simulation_type': sim_name,
-                'shape_probability': prob
+                'n_samples': n_samples
             }
 
             # Add all simulation-specific parameters without prefix
@@ -167,8 +172,9 @@ def run_optimizer_iteration(
     best_trials = runner.get_best_trials(top_n=n_suggestions)
 
     # Convert both to CSV format
-    suggestions_df = suggestions_to_csv_format(suggestions, group_names)
-    best_trials_df = suggestions_to_csv_format(best_trials, group_names)
+    n_samples = config.get('n_samples_to_generate', 1000)
+    suggestions_df = suggestions_to_csv_format(suggestions, group_names, n_samples)
+    best_trials_df = suggestions_to_csv_format(best_trials, group_names, n_samples)
 
     return suggestions_df, best_trials_df
 
@@ -185,24 +191,22 @@ if __name__ == '__main__':
     # STEP 1: Client provides per-simulation data (their format)
     # ================================================================
 
-    # Client provides 3 embedding arrays (one per simulation type)
-    # TWO distributions represented across 3 simulation types
-    # Each DataFrame has distribution_idx column to mark which distribution each sample belongs to
+    # Client provides 3 embedding arrays (one per source/simulation type)
+    # Sub-distributions are auto-detected by identical parameter rows
+    # Cartesian product generates: 2×2×2 = 8 joint distributions
 
-    # Simulation 1: 15 samples from dist_0 + 15 samples from dist_1 = 30 total
+    # Source 1: 2 sub-distributions (15 + 15 = 30 samples)
     sim1_embeddings = np.random.randn(30, 400).astype(np.float32)
 
-    # Simulation 2: 10 samples from dist_0 + 10 samples from dist_1 = 20 total
+    # Source 2: 2 sub-distributions (10 + 10 = 20 samples)
     sim2_embeddings = np.random.randn(20, 400).astype(np.float32)
 
-    # Simulation 3: 12 samples from dist_0 + 13 samples from dist_1 = 25 total
+    # Source 3: 2 sub-distributions (12 + 13 = 25 samples)
     sim3_embeddings = np.random.randn(25, 400).astype(np.float32)
 
-    # Client provides 3 metadata DataFrames (one per simulation) with simulation-specific params
-    # Each simulation can have different parameter sets (column names)
-    # Rows with same distribution_idx have identical parameter values
+    # Metadata DataFrames: sub-distributions detected by identical rows
+    # No distribution_idx column needed
     sim1_metadata = pd.DataFrame({
-        'distribution_idx': [0] * 15 + [1] * 15,
         'void_count_mean': [5.2] * 15 + [6.5] * 15,
         'base_size_mean': [10.3] * 15 + [11.8] * 15,
         'base_size_std': [2.1] * 15 + [2.5] * 15,
@@ -216,7 +220,6 @@ if __name__ == '__main__':
     })
 
     sim2_metadata = pd.DataFrame({
-        'distribution_idx': [0] * 10 + [1] * 10,
         'void_count_mean': [4.3] * 10 + [5.1] * 10,
         'base_size_mean': [12.4] * 10 + [13.2] * 10,
         'base_size_std': [2.1] * 10 + [2.3] * 10,
@@ -232,7 +235,6 @@ if __name__ == '__main__':
     })
 
     sim3_metadata = pd.DataFrame({
-        'distribution_idx': [0] * 12 + [1] * 13,
         'void_count_mean': [3.4] * 12 + [4.2] * 13,
         'base_size_mean': [8.5] * 12 + [9.3] * 13,
         'base_size_std': [2.1] * 12 + [2.4] * 13,
