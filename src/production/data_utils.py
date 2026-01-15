@@ -11,7 +11,7 @@ No dependencies on MockDataGenerator or data generation modules.
 
 import numpy as np
 import pandas as pd
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Any
 import math
 
 
@@ -22,22 +22,21 @@ def prepare_client_data_for_optimizer(
     """
     Convert per-simulation client data to unified optimizer format.
 
-    The client provides separate arrays and DataFrames for each simulation type,
-    representing ONE joint distribution. This function merges them and auto-generates
-    simulation names.
+    Supports both single and multiple distributions. Each simulation DataFrame
+    can contain multiple distributions marked by 'distribution_idx' column.
 
     Args:
         embeddings_by_shape: List of (n_samples, 400) arrays, one per simulation type
-                            All arrays together represent ONE distribution
         metadata_by_shape: List of DataFrames with simulation-specific params
-                          Each DataFrame represents the parameters for one simulation type
-                          Parameters are inferred from DataFrame column names
-                          All rows in a DataFrame should have identical parameter values
+                          Each DataFrame must have 'distribution_idx' column
+                          Samples with the same distribution_idx across all DataFrames
+                          belong to the same distribution
+                          All rows with same distribution_idx have identical parameter values
 
     Returns:
         synthetic_embeddings: (total_samples, 400) concatenated array
         metadata_df: Unified DataFrame with columns:
-                     - distribution_id: int (always 0 for single distribution)
+                     - distribution_id: int (renamed from distribution_idx)
                      - shape_logit_{simulation_name}: float for each simulation
                      - {simulation_name}__{param}: value for each simulation parameter
         group_names: List of auto-generated simulation names ['simulation_1', 'simulation_2', ...]
@@ -51,47 +50,44 @@ def prepare_client_data_for_optimizer(
     # Auto-generate simulation names: simulation_1, simulation_2, etc.
     group_names = [f"simulation_{i+1}" for i in range(len(embeddings_by_shape))]
 
-    # Count samples per simulation (for computing shape probabilities)
-    sample_counts = {
-        sim_name: len(embeddings)
-        for sim_name, embeddings in zip(group_names, embeddings_by_shape)
-    }
-
-    # Compute shape logits from sample counts (inverse softmax)
-    total_samples = sum(sample_counts.values())
-    shape_logits = {}
-    for sim_name, count in sample_counts.items():
-        prob = max(count / total_samples, 1e-6)
-        shape_logits[f'shape_logit_{sim_name}'] = math.log(prob)
-
-    # Extract parameters from each simulation's DataFrame (take first row)
-    sim_params = {}
-    for sim_name, metadata_df in zip(group_names, metadata_by_shape):
+    # Verify all DataFrames have distribution_idx column
+    for i, metadata_df in enumerate(metadata_by_shape):
+        if 'distribution_idx' not in metadata_df.columns:
+            raise ValueError(
+                f"DataFrame {i} (simulation_{i+1}) missing required 'distribution_idx' column"
+            )
         if len(metadata_df) == 0:
-            raise ValueError(f"Empty DataFrame for {sim_name}")
+            raise ValueError(f"Empty DataFrame for simulation_{i+1}")
 
-        # Take first row as representative (all rows should have identical params)
-        first_row = metadata_df.iloc[0]
+    # Rename distribution_idx to distribution_id for internal consistency
+    metadata_by_shape_renamed = []
+    for metadata_df in metadata_by_shape:
+        df_copy = metadata_df.copy()
+        df_copy.rename(columns={'distribution_idx': 'distribution_id'}, inplace=True)
+        metadata_by_shape_renamed.append(df_copy)
 
-        for col in metadata_df.columns:
-            # Keep original type (numeric or categorical)
-            value = first_row[col]
-            if pd.api.types.is_numeric_dtype(metadata_df[col]):
-                sim_params[f'{sim_name}__{col}'] = float(value)
-            else:
-                sim_params[f'{sim_name}__{col}'] = value
+    # Step 1: Count samples per distribution per simulation
+    sample_counts = _count_samples_per_distribution(metadata_by_shape_renamed, group_names)
 
-    # Build unified metadata rows (one per sample)
-    # All samples belong to distribution_id = 0
+    # Step 2: Compute shape logits for each distribution
+    logits_by_dist = _compute_shape_logits(sample_counts, group_names)
+
+    # Step 3: Merge parameters from all simulation DataFrames
+    params_by_dist = _merge_shape_parameters(metadata_by_shape_renamed, group_names)
+
+    # Step 4: Build unified metadata rows (one per sample)
+    # Note: params_by_dist already contains all simulation params with prefixes from _merge_shape_parameters
     unified_metadata_rows = []
 
-    for sim_name, metadata_df in zip(group_names, metadata_by_shape):
-        for _ in range(len(metadata_df)):
-            # Build row: dist_id + logits + all simulation params
+    for metadata_df in metadata_by_shape_renamed:
+        for _, row in metadata_df.iterrows():
+            dist_id = int(row['distribution_id'])
+
+            # Build row: dist_id + logits + all simulation params for this distribution
             unified_row = {
-                'distribution_id': 0,
-                **shape_logits,
-                **sim_params
+                'distribution_id': dist_id,
+                **logits_by_dist[dist_id],
+                **params_by_dist[dist_id]
             }
             unified_metadata_rows.append(unified_row)
 
@@ -179,7 +175,7 @@ def _compute_shape_logits(
 def _merge_shape_parameters(
     metadata_by_shape: List[pd.DataFrame],
     group_names: List[str]
-) -> Dict[int, Dict[str, float]]:
+) -> Dict[int, Dict[str, Any]]:
     """
     Merge shape-specific parameters into unified format with prefixes.
 
@@ -215,7 +211,12 @@ def _merge_shape_parameters(
             # Add all columns except distribution_id with shape prefix
             for col in metadata_df.columns:
                 if col != 'distribution_id':
-                    merged_params[f'{shape_name}__{col}'] = float(row[col])
+                    value = row[col]
+                    # Keep original type (numeric or categorical)
+                    if pd.api.types.is_numeric_dtype(metadata_df[col]):
+                        merged_params[f'{shape_name}__{col}'] = float(value)
+                    else:
+                        merged_params[f'{shape_name}__{col}'] = value
 
         params_by_dist[dist_id] = merged_params
 

@@ -186,59 +186,63 @@ if __name__ == '__main__':
     # ================================================================
 
     # Client provides 3 embedding arrays (one per simulation type)
-    # ONE distribution represented across 3 simulation types
+    # TWO distributions represented across 3 simulation types
+    # Each DataFrame has distribution_idx column to mark which distribution each sample belongs to
 
-    # Simulation 1: 30 samples
+    # Simulation 1: 15 samples from dist_0 + 15 samples from dist_1 = 30 total
     sim1_embeddings = np.random.randn(30, 400).astype(np.float32)
 
-    # Simulation 2: 20 samples
+    # Simulation 2: 10 samples from dist_0 + 10 samples from dist_1 = 20 total
     sim2_embeddings = np.random.randn(20, 400).astype(np.float32)
 
-    # Simulation 3: 25 samples
+    # Simulation 3: 12 samples from dist_0 + 13 samples from dist_1 = 25 total
     sim3_embeddings = np.random.randn(25, 400).astype(np.float32)
 
     # Client provides 3 metadata DataFrames (one per simulation) with simulation-specific params
     # Each simulation can have different parameter sets (column names)
-    # All rows in a DataFrame should have identical parameter values (replicated for each sample)
+    # Rows with same distribution_idx have identical parameter values
     sim1_metadata = pd.DataFrame({
-        'void_count_mean': [5.2] * 30,
-        'base_size_mean': [10.3] * 30,
-        'base_size_std': [2.1] * 30,
-        'center_x_mean': [0.51] * 30,
-        'center_x_std': [0.11] * 30,
-        'center_y_mean': [0.52] * 30,
-        'center_y_std': [0.11] * 30,
-        'position_spread_mean': [0.15] * 30,
-        'position_spread_std': [0.051] * 30,
-        'void_shape': ['circle'] * 30  # Categorical parameter
+        'distribution_idx': [0] * 15 + [1] * 15,
+        'void_count_mean': [5.2] * 15 + [6.5] * 15,
+        'base_size_mean': [10.3] * 15 + [11.8] * 15,
+        'base_size_std': [2.1] * 15 + [2.5] * 15,
+        'center_x_mean': [0.51] * 15 + [0.48] * 15,
+        'center_x_std': [0.11] * 15 + [0.13] * 15,
+        'center_y_mean': [0.52] * 15 + [0.49] * 15,
+        'center_y_std': [0.11] * 15 + [0.12] * 15,
+        'position_spread_mean': [0.15] * 15 + [0.18] * 15,
+        'position_spread_std': [0.051] * 15 + [0.06] * 15,
+        'void_shape': ['circle'] * 30
     })
 
     sim2_metadata = pd.DataFrame({
-        'void_count_mean': [4.3] * 20,
-        'base_size_mean': [12.4] * 20,
-        'base_size_std': [2.1] * 20,
-        'rotation_mean': [45.5] * 20,  # Only sim2 has rotation
-        'rotation_std': [15.2] * 20,
-        'center_x_mean': [0.51] * 20,
-        'center_x_std': [0.11] * 20,
-        'center_y_mean': [0.52] * 20,
-        'center_y_std': [0.11] * 20,
-        'position_spread_mean': [0.15] * 20,
-        'position_spread_std': [0.051] * 20,
-        'void_shape': ['ellipse'] * 20  # Categorical parameter
+        'distribution_idx': [0] * 10 + [1] * 10,
+        'void_count_mean': [4.3] * 10 + [5.1] * 10,
+        'base_size_mean': [12.4] * 10 + [13.2] * 10,
+        'base_size_std': [2.1] * 10 + [2.3] * 10,
+        'rotation_mean': [45.5] * 10 + [60.0] * 10,
+        'rotation_std': [15.2] * 10 + [18.5] * 10,
+        'center_x_mean': [0.51] * 10 + [0.47] * 10,
+        'center_x_std': [0.11] * 10 + [0.14] * 10,
+        'center_y_mean': [0.52] * 10 + [0.50] * 10,
+        'center_y_std': [0.11] * 10 + [0.13] * 10,
+        'position_spread_mean': [0.15] * 10 + [0.17] * 10,
+        'position_spread_std': [0.051] * 10 + [0.055] * 10,
+        'void_shape': ['ellipse'] * 20
     })
 
     sim3_metadata = pd.DataFrame({
-        'void_count_mean': [3.4] * 25,
-        'base_size_mean': [8.5] * 25,
-        'base_size_std': [2.1] * 25,
-        'center_x_mean': [0.51] * 25,
-        'center_x_std': [0.11] * 25,
-        'center_y_mean': [0.52] * 25,
-        'center_y_std': [0.11] * 25,
-        'position_spread_mean': [0.15] * 25,
-        'position_spread_std': [0.051] * 25,
-        'void_shape': ['irregular'] * 25  # Categorical parameter
+        'distribution_idx': [0] * 12 + [1] * 13,
+        'void_count_mean': [3.4] * 12 + [4.2] * 13,
+        'base_size_mean': [8.5] * 12 + [9.3] * 13,
+        'base_size_std': [2.1] * 12 + [2.4] * 13,
+        'center_x_mean': [0.51] * 12 + [0.46] * 13,
+        'center_x_std': [0.11] * 12 + [0.15] * 13,
+        'center_y_mean': [0.52] * 12 + [0.48] * 13,
+        'center_y_std': [0.11] * 12 + [0.14] * 13,
+        'position_spread_mean': [0.15] * 12 + [0.19] * 13,
+        'position_spread_std': [0.051] * 12 + [0.062] * 13,
+        'void_shape': ['irregular'] * 25
     })
 
     print(f"\n[Client Data] Provided ONE distribution with 3 simulation types:")
