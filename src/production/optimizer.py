@@ -136,11 +136,92 @@ class OptunaOptimizer:
         # 2. All params for all shapes
         for group_name in self.group_names:
             group_bounds = self.param_bounds[group_name]
+            handled_max = set()
+
             for param_name, bounds in group_bounds.items():
+                if param_name in handled_max:
+                    continue
+
+                if param_name.endswith('_min'):
+                    base = param_name[:-4]
+                    max_name = f'{base}_max'
+                    if max_name in group_bounds:
+                        min_key = f'{group_name}__{param_name}'
+                        max_key = f'{group_name}__{max_name}'
+                        min_val, max_val = self._suggest_min_max_pair(
+                            trial=trial,
+                            min_key=min_key,
+                            max_key=max_key,
+                            min_bounds=bounds,
+                            max_bounds=group_bounds[max_name]
+                        )
+
+                        params[min_key] = min_val
+                        params[max_key] = max_val
+                        handled_max.add(max_name)
+                        continue
+
                 optuna_key = f'{group_name}__{param_name}'
                 params[optuna_key] = self._suggest_single_param(trial, optuna_key, bounds)
 
+        self._validate_min_max_pairs(params)
         return params
+
+    def _validate_min_max_pairs(self, params: Dict) -> None:
+        """
+        Validate that every *_min/*_max pair in params satisfies min < max.
+        """
+        min_keys = [k for k in params if k.endswith('_min')]
+        for min_key in min_keys:
+            base = min_key[:-4]
+            max_key = f'{base}_max'
+            if max_key not in params:
+                continue
+            min_val = params[min_key]
+            max_val = params[max_key]
+            assert min_val < max_val, (
+                f"Invalid min/max pair: {min_key}={min_val} must be < {max_key}={max_val}"
+            )
+
+    def _suggest_min_max_pair(
+        self,
+        trial: optuna.Trial,
+        min_key: str,
+        max_key: str,
+        min_bounds,
+        max_bounds
+    ) -> tuple:
+        """
+        Suggest a min/max pair with the constraint min < max.
+
+        Returns:
+            (min_val, max_val)
+        """
+
+        min_val = self._suggest_single_param(trial, min_key, min_bounds)
+
+        is_int = all(
+            isinstance(b, int) or (isinstance(b, float) and b.is_integer())
+            for b in min_bounds + max_bounds
+        )
+        if is_int:
+            lower = max(int(max_bounds[0]), int(min_val) + 1)
+            upper = int(max_bounds[1])
+            assert lower <= upper, (
+                f"Invalid bounds for {max_key}: {lower}..{upper} from {max_bounds} "
+                f"with {min_key}={min_val}"
+            )
+            max_val = trial.suggest_int(max_key, lower, upper)
+        else:
+            lower = max(max_bounds[0], float(min_val) + 1e-6)
+            upper = float(max_bounds[1])
+            assert lower < upper, (
+                f"Invalid bounds for {max_key}: {lower}..{upper} from {max_bounds} "
+                f"with {min_key}={min_val}"
+            )
+            max_val = trial.suggest_float(max_key, lower, upper)
+
+        return min_val, max_val
 
     def _suggest_single_param(self, trial: optuna.Trial, param_name: str, bounds):
         """
