@@ -8,28 +8,26 @@ from scripts.translate_tensorleap_recommendations import (
 if __name__ == '__main__':
     base_image_dir = Path(__file__).parent.parent / "data" / "base_chips"
     config_path = Path(__file__).parent.parent / "configs" / "local_experiment_config.yaml"
-    recommendations_csv = Path(__file__).parent.parent / "data" / "next_trials-All_3ChipTypes_seg_model_deployed-epoch0 (2).csv"
+    recommendations_csv = Path(__file__).parent.parent / "data" / "suggestions-more_distributions-epoch0.csv"
     output_dir = Path(__file__).parent.parent / "data" / "tensorleap_dataset_epoch1"
 
     print("="*60)
     print("GENERATING DATASET FROM TENSORLEAP RECOMMENDATIONS")
     print("="*60)
 
-    shape_params = translate_recommendations_csv(recommendations_csv)
-    n_samples = calculate_n_samples_per_shape(recommendations_csv, divisor=20)
+    shape_params = translate_recommendations_csv(recommendations_csv, distribution_id='dist_1')
+    n_samples_dict = calculate_n_samples_per_shape(recommendations_csv, distribution_id='dist_1', target_total_samples=300)
 
     generator = TensorleapDataGenerator(
         base_image_dir=base_image_dir,
         config_path=config_path
     )
 
-    metadata_df = generator.generate_dataset(
+    metadata_df = generator.generate_synthetic_only(
         output_dir=output_dir,
-        real_distribution_type='real',
         synthetic_shapes=['circle', 'ellipse', 'irregular'],
         synthetic_shape_params=shape_params,
-        n_real_samples=100,
-        n_samples_per_shape=n_samples,
+        n_samples_per_shape_dict=n_samples_dict,
         seed=42
     )
 

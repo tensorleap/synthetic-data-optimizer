@@ -6,6 +6,7 @@ from typing import Dict
 
 def translate_recommendations_csv(
     csv_path: Path,
+    distribution_id: str = 'dist_1',
     default_params: Dict = None
 ) -> Dict[str, Dict]:
     if default_params is None:
@@ -20,6 +21,13 @@ def translate_recommendations_csv(
 
     df = pd.read_csv(csv_path)
 
+    df_filtered = df[df['distribution_id'] == distribution_id]
+
+    if len(df_filtered) == 0:
+        raise ValueError(f"No rows found for distribution_id='{distribution_id}'")
+
+    print(f"Extracting parameters for: {distribution_id}")
+
     simulation_to_shape = {
         'simulation_1': 'circle',
         'simulation_2': 'ellipse',
@@ -28,11 +36,11 @@ def translate_recommendations_csv(
 
     shape_params = {}
 
-    for _, row in df.iterrows():
+    for _, row in df_filtered.iterrows():
         sim_type = row['simulation_type']
         shape_name = simulation_to_shape[sim_type]
 
-        params = default_params.copy()
+        params = {}
 
         for param_base in ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
             mean_col = f'metadata.simulation_{param_base}_mean'
@@ -41,12 +49,12 @@ def translate_recommendations_csv(
             if mean_col in df.columns and pd.notna(row[mean_col]):
                 mean_val = float(row[mean_col])
             else:
-                mean_val = params[param_base]['mean']
+                mean_val = default_params[param_base]['mean']
 
             if std_col in df.columns and pd.notna(row[std_col]):
                 std_val = float(row[std_col])
             else:
-                std_val = params[param_base]['std']
+                std_val = default_params[param_base]['std']
 
             params[param_base] = {'mean': mean_val, 'std': std_val}
 
@@ -54,7 +62,7 @@ def translate_recommendations_csv(
 
         shape_params[shape_name] = params
 
-    print("Translated Tensorleap recommendations:")
+    print("\nTranslated parameters:")
     for shape, params in shape_params.items():
         print(f"\n{shape}:")
         for param_name, values in params.items():
@@ -64,28 +72,62 @@ def translate_recommendations_csv(
     return shape_params
 
 
-def calculate_n_samples_per_shape(csv_path: Path, divisor: int = 20) -> int:
+def calculate_n_samples_per_shape(
+    csv_path: Path,
+    distribution_id: str = 'dist_1',
+    target_total_samples: int = 300
+) -> Dict[str, int]:
     df = pd.read_csv(csv_path)
-    n_samples_original = int(df['n_samples'].iloc[0])
-    n_samples_adjusted = n_samples_original // divisor
 
-    print(f"\nSample count adjustment:")
-    print(f"  Original: {n_samples_original}")
-    print(f"  Divisor: {divisor}")
-    print(f"  Adjusted: {n_samples_adjusted}")
+    df_filtered = df[df['distribution_id'] == distribution_id]
 
-    return n_samples_adjusted
+    if len(df_filtered) == 0:
+        raise ValueError(f"No rows found for distribution_id='{distribution_id}'")
+
+    simulation_to_shape = {
+        'simulation_1': 'circle',
+        'simulation_2': 'ellipse',
+        'simulation_3': 'irregular'
+    }
+
+    n_samples_original = {}
+    total_original = 0
+
+    for _, row in df_filtered.iterrows():
+        sim_type = row['simulation_type']
+        shape_name = simulation_to_shape[sim_type]
+        n_original = int(row['n_samples'])
+        n_samples_original[shape_name] = n_original
+        total_original += n_original
+
+    n_samples_normalized = {}
+    min_samples_per_shape = 20
+
+    print(f"\nNormalizing sample counts to ~{target_total_samples} total:")
+    print(f"  Original total: {total_original}")
+    print(f"  Minimum per shape: {min_samples_per_shape}")
+
+    for shape_name, n_original in n_samples_original.items():
+        proportion = n_original / total_original
+        n_normalized = max(int(proportion * target_total_samples), min_samples_per_shape)
+        n_samples_normalized[shape_name] = n_normalized
+        print(f"  {shape_name}: {n_original} ({proportion:.1%}) → {n_normalized}")
+
+    actual_total = sum(n_samples_normalized.values())
+    print(f"  Actual total: {actual_total}")
+
+    return n_samples_normalized
 
 
 if __name__ == '__main__':
-    csv_path = Path(__file__).parent.parent / "data" / "next_trials-All_3ChipTypes_seg_model_deployed-epoch0 (2).csv"
+    csv_path = Path(__file__).parent.parent / "data" / "suggestions-more_distributions-epoch0.csv"
 
-    shape_params = translate_recommendations_csv(csv_path)
-    n_samples = calculate_n_samples_per_shape(csv_path, divisor=20)
+    shape_params = translate_recommendations_csv(csv_path, distribution_id='dist_1')
+    n_samples = calculate_n_samples_per_shape(csv_path, distribution_id='dist_1', target_total_samples=300)
 
     print(f"\n{'='*60}")
     print("READY TO GENERATE")
     print(f"{'='*60}")
     print(f"Use these parameters in generate_tensorleap_data.py:")
     print(f"  synthetic_shape_params={shape_params}")
-    print(f"  n_samples_per_shape={n_samples}")
+    print(f"  n_samples_per_shape_dict={n_samples}")

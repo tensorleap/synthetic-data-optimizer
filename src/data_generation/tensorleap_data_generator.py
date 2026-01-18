@@ -27,6 +27,7 @@ class TensorleapDataGenerator:
         synthetic_shape_params: Optional[Dict[str, Dict]] = None,
         n_real_samples: int = 100,
         n_samples_per_shape: int = 30,
+        n_samples_per_shape_dict: Optional[Dict[str, int]] = None,
         train_val_test_split: Tuple[float, float, float] = (0.7, 0.15, 0.15),
         seed: int = 42
     ):
@@ -40,12 +41,17 @@ class TensorleapDataGenerator:
         train_split, val_split, test_split = train_val_test_split
         assert abs(train_split + val_split + test_split - 1.0) < 1e-6, "Splits must sum to 1.0"
 
+        if n_samples_per_shape_dict is None:
+            n_samples_per_shape_dict = {shape: n_samples_per_shape for shape in synthetic_shapes}
+
         print(f"\n{'='*60}")
         print(f"TENSORLEAP DATA GENERATOR")
         print(f"{'='*60}")
         print(f"Output directory: {output_dir}")
         print(f"Real distribution: '{real_distribution_type}' ({n_real_samples} samples)")
-        print(f"Synthetic shapes: {synthetic_shapes} ({n_samples_per_shape} samples each)")
+        print(f"Synthetic shapes:")
+        for shape in synthetic_shapes:
+            print(f"  {shape}: {n_samples_per_shape_dict[shape]} samples")
         print(f"Split: train={train_split:.0%}, val={val_split:.0%}, test={test_split:.0%}")
 
         all_metadata = []
@@ -123,7 +129,8 @@ class TensorleapDataGenerator:
 
         for shape_idx, shape_name in enumerate(synthetic_shapes):
             dist_name = f"synthetic_{shape_name}"
-            print(f"  [{dist_name}] Generating {n_samples_per_shape} samples...")
+            n_samples_this_shape = n_samples_per_shape_dict[shape_name]
+            print(f"  [{dist_name}] Generating {n_samples_this_shape} samples...")
 
             shape_base_spec = synthetic_shape_params[shape_name]
             shape_spec = self._create_shape_specific_spec(shape_base_spec, shape_name)
@@ -131,7 +138,7 @@ class TensorleapDataGenerator:
             dist_seed = seed + (shape_idx + 1) * 10000
             param_sets = self.parameter_sampler.sample_from_distribution_spec(
                 shape_spec,
-                n_samples=n_samples_per_shape,
+                n_samples=n_samples_this_shape,
                 seed=dist_seed
             )
 
@@ -144,14 +151,14 @@ class TensorleapDataGenerator:
             synth_dist_params = self._extract_distribution_params(shape_spec, shape_filter=shape_name)
 
             # Split synthetic data
-            n_train_synth = int(n_samples_per_shape * train_split)
-            n_val_synth = int(n_samples_per_shape * val_split)
-            n_test_synth = n_samples_per_shape - n_train_synth - n_val_synth
+            n_train_synth = int(n_samples_this_shape * train_split)
+            n_val_synth = int(n_samples_this_shape * val_split)
+            n_test_synth = n_samples_this_shape - n_train_synth - n_val_synth
 
             splits_synth = {
                 'train': (0, n_train_synth),
                 'val': (n_train_synth, n_train_synth + n_val_synth),
-                'test': (n_train_synth + n_val_synth, n_samples_per_shape)
+                'test': (n_train_synth + n_val_synth, n_samples_this_shape)
             }
 
             shape_global_idx = 0
@@ -177,7 +184,7 @@ class TensorleapDataGenerator:
                     all_metadata.append(metadata_row)
                     shape_global_idx += 1
 
-            print(f"    Saved {n_samples_per_shape} images (train={n_train_synth}, val={n_val_synth}, test={n_test_synth})")
+            print(f"    Saved {n_samples_this_shape} images (train={n_train_synth}, val={n_val_synth}, test={n_test_synth})")
 
         metadata_df = pd.DataFrame(all_metadata)
 
@@ -206,6 +213,96 @@ class TensorleapDataGenerator:
         print(f"      real/                ({n_test} images)")
         for shape in synthetic_shapes:
             print(f"      synthetic_{shape}/   ({n_test_synth} images)")
+        print(f"    csv/")
+        print(f"      metadata.csv       ({len(metadata_df)} rows, {metadata_df['image_name'].nunique()} unique)")
+        print(f"\nMetadata columns: {list(metadata_df.columns)}")
+        print(f"\nDataset ready for Tensorleap integration!")
+
+        return metadata_df
+
+    def generate_synthetic_only(
+        self,
+        output_dir: Path,
+        synthetic_shapes: List[str],
+        synthetic_shape_params: Dict[str, Dict],
+        n_samples_per_shape_dict: Dict[str, int],
+        seed: int = 42
+    ):
+        np.random.seed(seed)
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"\n{'='*60}")
+        print(f"TENSORLEAP SYNTHETIC DATA GENERATOR (EPOCH > 0)")
+        print(f"{'='*60}")
+        print(f"Output directory: {output_dir}")
+        print(f"Synthetic shapes:")
+        for shape in synthetic_shapes:
+            print(f"  {shape}: {n_samples_per_shape_dict[shape]} samples")
+
+        all_metadata = []
+
+        for shape in synthetic_shapes:
+            (output_dir / f'synthetic_{shape}').mkdir(exist_ok=True)
+
+        for shape_idx, shape_name in enumerate(synthetic_shapes):
+            dist_name = f"synthetic_{shape_name}"
+            n_samples = n_samples_per_shape_dict[shape_name]
+            print(f"\n[{dist_name}] Generating {n_samples} samples...")
+
+            shape_spec = self._create_shape_specific_spec(synthetic_shape_params[shape_name], shape_name)
+
+            dist_seed = seed + (shape_idx + 1) * 10000
+            param_sets = self.parameter_sampler.sample_from_distribution_spec(
+                shape_spec,
+                n_samples=n_samples,
+                seed=dist_seed
+            )
+
+            images, metadata_list = self.void_generator.generate_batch(
+                param_sets,
+                replications=1,
+                seed_offset=dist_seed
+            )
+
+            synth_dist_params = self._extract_distribution_params(shape_spec, shape_filter=shape_name)
+
+            for idx, (image, img_metadata) in enumerate(zip(images, metadata_list)):
+                img_name = f"{shape_name}_{idx:04d}.png"
+                mask_name = f"{shape_name}_{idx:04d}_mask.png"
+                img_path = output_dir / dist_name / img_name
+                mask_path = output_dir / dist_name / mask_name
+                cv2.imwrite(str(img_path), image)
+                cv2.imwrite(str(mask_path), img_metadata['mask'])
+
+                metadata_row = {
+                    'script_name': shape_name,
+                    'image_name': img_name,
+                    'mask_name': mask_name,
+                    'package_type': 'test',
+                    **synth_dist_params
+                }
+                all_metadata.append(metadata_row)
+
+            print(f"  Saved {n_samples} images to {output_dir / dist_name}")
+
+        metadata_df = pd.DataFrame(all_metadata)
+
+        csv_dir = output_dir / "csv"
+        csv_dir.mkdir(exist_ok=True)
+        metadata_csv_path = csv_dir / "metadata.csv"
+        metadata_df.to_csv(metadata_csv_path, index=False)
+
+        assert len(metadata_df) == metadata_df['image_name'].nunique(), \
+            f"Duplicate image_name found! {len(metadata_df)} rows but only {metadata_df['image_name'].nunique()} unique names"
+
+        print(f"\n{'='*60}")
+        print("DATA GENERATION COMPLETE")
+        print(f"{'='*60}")
+        print(f"Output structure:")
+        print(f"  {output_dir}/")
+        for shape in synthetic_shapes:
+            print(f"    synthetic_{shape}/   ({n_samples_per_shape_dict[shape]} images)")
         print(f"    csv/")
         print(f"      metadata.csv       ({len(metadata_df)} rows, {metadata_df['image_name'].nunique()} unique)")
         print(f"\nMetadata columns: {list(metadata_df.columns)}")

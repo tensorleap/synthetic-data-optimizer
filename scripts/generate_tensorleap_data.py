@@ -51,7 +51,11 @@ if __name__ == '__main__':
             'irregular': irregular_params
         },
         n_real_samples=100,
-        n_samples_per_shape=30,
+        n_samples_per_shape_dict={
+            'circle': 60,
+            'ellipse': 60,
+            'irregular': 60
+        },
         seed=42
     )
 
