@@ -18,7 +18,7 @@ class UNetEmbedder:
             raise FileNotFoundError(f"Model not found at {self.model_path}")
 
         if embedding_layer is None:
-            embedding_layer = 'Conv__247:0'
+            embedding_layer = 'functional_1/unet_model_1/unet_down4_conv_0_activation_1/Relu:0'
 
         self.embedding_layer = embedding_layer
 

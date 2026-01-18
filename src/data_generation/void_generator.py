@@ -162,7 +162,8 @@ class VoidGenerator:
         # Clip to valid range and convert back to uint8
         img = np.clip(img, 0, 255).astype(np.uint8)
 
-        # Build metadata
+        binary_mask = (unified_void_mask > 0.5).astype(np.uint8) * 255
+
         metadata = {
             'params': params,
             'seed': seed,
@@ -173,7 +174,8 @@ class VoidGenerator:
                 'edge_blur': int(edge_blur)
             },
             'voids': void_metadata,
-            'image_shape': (height, width)
+            'image_shape': (height, width),
+            'mask': binary_mask
         }
 
         return img, metadata

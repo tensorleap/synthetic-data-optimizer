@@ -24,65 +24,56 @@ class ProductionDataGenerator:
 
     def generate_data_for_optimizer(
         self,
+        real_distribution_type: str = 'real',
+        synthetic_distribution_type: str = 'far',
+        n_real_samples: int = 100,
         n_distributions: int = 2,
-        n_samples_per_distribution: int = 10,
-        simulation_specs: Optional[Dict[str, Dict]] = None,
+        n_samples_per_distribution: int = 15,
         target_embedding_dim: int = 400,
         seed: int = 42
-    ) -> Tuple[List[np.ndarray], List[pd.DataFrame]]:
+    ) -> Tuple[np.ndarray, List[np.ndarray], List[pd.DataFrame]]:
         np.random.seed(seed)
-
-        if simulation_specs is None:
-            simulation_specs = {
-                'simulation_1': {
-                    'void_shape': {'probabilities': {'circle': 1.0}},
-                    'void_count': {'mean': 5, 'std': 2},
-                    'base_size': {'mean': 10, 'std': 3},
-                    'rotation': {'mean': 0, 'std': 0},
-                    'center_x': {'mean': 0.5, 'std': 0.1},
-                    'center_y': {'mean': 0.5, 'std': 0.1},
-                    'position_spread': {'mean': 0.4, 'std': 0.1},
-                },
-                'simulation_2': {
-                    'void_shape': {'probabilities': {'ellipse': 1.0}},
-                    'void_count': {'mean': 4, 'std': 2},
-                    'base_size': {'mean': 12, 'std': 3},
-                    'rotation': {'mean': 45, 'std': 30},
-                    'center_x': {'mean': 0.5, 'std': 0.1},
-                    'center_y': {'mean': 0.5, 'std': 0.1},
-                    'position_spread': {'mean': 0.3, 'std': 0.1},
-                },
-                'simulation_3': {
-                    'void_shape': {'probabilities': {'irregular': 1.0}},
-                    'void_count': {'mean': 3, 'std': 1},
-                    'base_size': {'mean': 8, 'std': 2},
-                    'rotation': {'mean': 0, 'std': 0},
-                    'center_x': {'mean': 0.5, 'std': 0.15},
-                    'center_y': {'mean': 0.5, 'std': 0.15},
-                    'position_spread': {'mean': 0.5, 'std': 0.1},
-                }
-            }
 
         print(f"\n{'='*60}")
         print(f"PRODUCTION DATA GENERATOR")
         print(f"{'='*60}")
-        print(f"Generating {n_distributions} distributions × {n_samples_per_distribution} samples")
-        print(f"Simulations: {list(simulation_specs.keys())}")
+        print(f"Real distribution: '{real_distribution_type}' ({n_real_samples} samples)")
+        print(f"Synthetic distribution: '{synthetic_distribution_type}' ({n_distributions} dists × {n_samples_per_distribution} samples)")
         print(f"Target embedding dim: {target_embedding_dim}D (via PCA)")
 
+        print(f"\n[REAL DATA] Generating...")
+        real_param_sets = self.parameter_sampler.sample_parameter_sets(
+            distribution_type=real_distribution_type,
+            n_sets=n_real_samples,
+            seed=seed
+        )
+
+        real_images, _ = self.void_generator.generate_batch(
+            real_param_sets,
+            replications=1,
+            seed_offset=seed
+        )
+        print(f"  Generated {len(real_images)} real images")
+
+        real_embeddings_raw = self.unet_embedder.embed_batch(real_images, verbose=True)
+        print(f"  Extracted embeddings: {real_embeddings_raw.shape}")
+
+        print(f"\n[SYNTHETIC DATA] Generating per simulation type...")
         embeddings_per_simulation = []
         metadata_per_simulation = []
-        all_embeddings_for_pca = []
+        all_synthetic_embeddings = []
 
-        for sim_idx, (sim_name, sim_spec) in enumerate(simulation_specs.items()):
-            print(f"\n[{sim_name}] Generating data...")
+        simulation_names = ['simulation_1', 'simulation_2', 'simulation_3']
+
+        for sim_idx, sim_name in enumerate(simulation_names):
+            print(f"\n  [{sim_name}]")
 
             param_sets = []
             for dist_idx in range(n_distributions):
                 dist_seed = seed + sim_idx * 10000 + dist_idx * 100
-                params_for_dist = self.parameter_sampler.sample_from_distribution_spec(
-                    sim_spec,
-                    n_samples=n_samples_per_distribution,
+                params_for_dist = self.parameter_sampler.sample_parameter_sets(
+                    distribution_type=synthetic_distribution_type,
+                    n_sets=n_samples_per_distribution,
                     seed=dist_seed
                 )
 
@@ -91,52 +82,53 @@ class ProductionDataGenerator:
 
                 param_sets.extend(params_for_dist)
 
-            print(f"  Generated {len(param_sets)} parameter sets")
+            print(f"    Generated {len(param_sets)} parameter sets")
 
             images, metadata_list = self.void_generator.generate_batch(
                 param_sets,
                 replications=1,
                 seed_offset=seed + sim_idx * 100000
             )
+            print(f"    Generated {len(images)} images")
 
-            print(f"  Generated {len(images)} images")
+            embeddings_raw = self.unet_embedder.embed_batch(images, verbose=False)
+            print(f"    Extracted embeddings: {embeddings_raw.shape}")
 
-            embeddings_raw = self.unet_embedder.embed_batch(images, verbose=True)
-            print(f"  Extracted embeddings: {embeddings_raw.shape}")
-
-            all_embeddings_for_pca.append(embeddings_raw)
+            all_synthetic_embeddings.append(embeddings_raw)
 
             metadata_df = self._create_metadata_dataframe(param_sets)
-            print(f"  Created metadata DataFrame: {metadata_df.shape}")
+            print(f"    Created metadata DataFrame: {metadata_df.shape}")
 
             embeddings_per_simulation.append(embeddings_raw)
             metadata_per_simulation.append(metadata_df)
 
         print(f"\n{'='*60}")
-        print("Applying PCA to reduce embeddings to {target_embedding_dim}D...")
-        all_embeddings_combined = np.vstack(all_embeddings_for_pca)
+        print(f"Applying PCA to reduce embeddings to {target_embedding_dim}D...")
+
+        all_embeddings_combined = np.vstack([real_embeddings_raw] + all_synthetic_embeddings)
         print(f"  Combined embeddings shape: {all_embeddings_combined.shape}")
 
         self.pca_projector = PCAProjector(n_components=target_embedding_dim)
         self.pca_projector.fit_transform(all_embeddings_combined, verbose=True)
 
+        real_embeddings_pca = self.pca_projector.transform(real_embeddings_raw)
+        print(f"  Real embeddings (PCA): {real_embeddings_pca.shape}")
+
         embeddings_per_simulation_pca = []
-        for emb in embeddings_per_simulation:
+        for sim_name, emb in zip(simulation_names, embeddings_per_simulation):
             emb_pca = self.pca_projector.transform(emb)
+            print(f"  {sim_name} embeddings (PCA): {emb_pca.shape}")
             embeddings_per_simulation_pca.append(emb_pca)
 
         print(f"\n{'='*60}")
         print("DATA GENERATION COMPLETE")
         print(f"{'='*60}")
-        print(f"Output format:")
-        print(f"  - {len(embeddings_per_simulation_pca)} embedding arrays")
-        for i, emb in enumerate(embeddings_per_simulation_pca):
-            print(f"    [{i}] shape: {emb.shape}")
+        print(f"Output:")
+        print(f"  - Real embeddings: {real_embeddings_pca.shape}")
+        print(f"  - {len(embeddings_per_simulation_pca)} synthetic embedding arrays")
         print(f"  - {len(metadata_per_simulation)} metadata DataFrames")
-        for i, df in enumerate(metadata_per_simulation):
-            print(f"    [{i}] shape: {df.shape}, columns: {list(df.columns)}")
 
-        return embeddings_per_simulation_pca, metadata_per_simulation
+        return real_embeddings_pca, embeddings_per_simulation_pca, metadata_per_simulation
 
     def _create_metadata_dataframe(self, param_sets: List[Dict]) -> pd.DataFrame:
         rows = []
