@@ -24,6 +24,7 @@ class TensorleapDataGenerator:
         real_distribution_type: str = 'real',
         synthetic_shapes: List[str] = None,
         synthetic_distribution_type: str = 'far',
+        synthetic_shape_params: Optional[Dict[str, Dict]] = None,
         n_real_samples: int = 100,
         n_samples_per_shape: int = 30,
         train_val_test_split: Tuple[float, float, float] = (0.7, 0.15, 0.15),
@@ -50,7 +51,12 @@ class TensorleapDataGenerator:
         all_metadata = []
 
         real_dist_spec = self.parameter_sampler.distributions[real_distribution_type]
-        synth_base_spec = self.parameter_sampler.distributions[synthetic_distribution_type]
+
+        if synthetic_shape_params is None:
+            synth_base_spec = self.parameter_sampler.distributions[synthetic_distribution_type]
+            synthetic_shape_params = {}
+            for shape in synthetic_shapes:
+                synthetic_shape_params[shape] = synth_base_spec
 
         # Create split directories
         for split_name in ['train', 'val', 'test']:
@@ -119,7 +125,8 @@ class TensorleapDataGenerator:
             dist_name = f"synthetic_{shape_name}"
             print(f"  [{dist_name}] Generating {n_samples_per_shape} samples...")
 
-            shape_spec = self._create_shape_specific_spec(synth_base_spec, shape_name)
+            shape_base_spec = synthetic_shape_params[shape_name]
+            shape_spec = self._create_shape_specific_spec(shape_base_spec, shape_name)
 
             dist_seed = seed + (shape_idx + 1) * 10000
             param_sets = self.parameter_sampler.sample_from_distribution_spec(
