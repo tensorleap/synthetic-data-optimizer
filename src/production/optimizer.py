@@ -3,6 +3,7 @@ Optuna-based Bayesian optimizer for synthetic data parameter optimization.
 """
 
 import math
+import numbers
 import optuna
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -23,6 +24,16 @@ class OptunaOptimizer:
     - Proper ask/tell pattern with pending trials tracking
     - Pareto front tracking for trade-off analysis
     - SQLite persistence for study state
+
+    Min/max handling:
+    - If a parameter pair uses *_min and *_max bounds in param_bounds, the optimizer
+      transforms it internally to *_min and *_delta where delta = max - min.
+    - Optuna operates on min + delta to guarantee max >= min; outgoing suggestions
+      are converted back to min/max and clamped to the original max bounds.
+    - current_distributions provided to suggest_next_distributions should use
+      min/max keys; they are normalized to min/delta before add_trial().
+    - Ensure min/max bounds are consistent (max upper bound > min lower bound),
+      or the derived delta range may be too small.
     """
 
     def __init__(
@@ -52,9 +63,12 @@ class OptunaOptimizer:
         if not param_bounds:
             raise ValueError("param_bounds is required and cannot be empty")
 
+        # Find and swich min/max params to min + delta
+        # 2. All params for all shapes
+        self.param_bounds = self._arrange_param_bounds(param_bounds)
+
         # Infer group names from param_bounds keys (sorted for deterministic order)
         self.group_names = sorted(param_bounds.keys())
-        self.param_bounds = param_bounds
 
         # Get optimization metrics from config
         self.optimization_metrics = config.get('optimization_metrics', ['mmd_rbf', 'mean_nn_distance'])
@@ -136,92 +150,11 @@ class OptunaOptimizer:
         # 2. All params for all shapes
         for group_name in self.group_names:
             group_bounds = self.param_bounds[group_name]
-            handled_max = set()
-
             for param_name, bounds in group_bounds.items():
-                if param_name in handled_max:
-                    continue
-
-                if param_name.endswith('_min'):
-                    base = param_name[:-4]
-                    max_name = f'{base}_max'
-                    if max_name in group_bounds:
-                        min_key = f'{group_name}__{param_name}'
-                        max_key = f'{group_name}__{max_name}'
-                        min_val, max_val = self._suggest_min_max_pair(
-                            trial=trial,
-                            min_key=min_key,
-                            max_key=max_key,
-                            min_bounds=bounds,
-                            max_bounds=group_bounds[max_name]
-                        )
-
-                        params[min_key] = min_val
-                        params[max_key] = max_val
-                        handled_max.add(max_name)
-                        continue
-
                 optuna_key = f'{group_name}__{param_name}'
                 params[optuna_key] = self._suggest_single_param(trial, optuna_key, bounds)
 
-        self._validate_min_max_pairs(params)
         return params
-
-    def _validate_min_max_pairs(self, params: Dict) -> None:
-        """
-        Validate that every *_min/*_max pair in params satisfies min < max.
-        """
-        min_keys = [k for k in params if k.endswith('_min')]
-        for min_key in min_keys:
-            base = min_key[:-4]
-            max_key = f'{base}_max'
-            if max_key not in params:
-                continue
-            min_val = params[min_key]
-            max_val = params[max_key]
-            assert min_val < max_val, (
-                f"Invalid min/max pair: {min_key}={min_val} must be < {max_key}={max_val}"
-            )
-
-    def _suggest_min_max_pair(
-        self,
-        trial: optuna.Trial,
-        min_key: str,
-        max_key: str,
-        min_bounds,
-        max_bounds
-    ) -> tuple:
-        """
-        Suggest a min/max pair with the constraint min < max.
-
-        Returns:
-            (min_val, max_val)
-        """
-
-        min_val = self._suggest_single_param(trial, min_key, min_bounds)
-
-        is_int = all(
-            isinstance(b, int) or (isinstance(b, float) and b.is_integer())
-            for b in min_bounds + max_bounds
-        )
-        if is_int:
-            lower = max(int(max_bounds[0]), int(min_val) + 1)
-            upper = int(max_bounds[1])
-            assert lower <= upper, (
-                f"Invalid bounds for {max_key}: {lower}..{upper} from {max_bounds} "
-                f"with {min_key}={min_val}"
-            )
-            max_val = trial.suggest_int(max_key, lower, upper)
-        else:
-            lower = max(max_bounds[0], float(min_val) + 1e-6)
-            upper = float(max_bounds[1])
-            assert lower < upper, (
-                f"Invalid bounds for {max_key}: {lower}..{upper} from {max_bounds} "
-                f"with {min_key}={min_val}"
-            )
-            max_val = trial.suggest_float(max_key, lower, upper)
-
-        return min_val, max_val
 
     def _suggest_single_param(self, trial: optuna.Trial, param_name: str, bounds):
         """
@@ -451,6 +384,84 @@ class OptunaOptimizer:
         # Return combined dict with probabilities + other params
         return {**probs, **other_params}
 
+    def _arrange_param_bounds(self, param_bounds):
+        self.max_bound_storage = {}
+        rel_eps = 1e-4
+        for group_name in sorted(param_bounds.keys()):
+            group_bounds = param_bounds[group_name]
+            if group_name not in self.max_bound_storage:
+                self.max_bound_storage[group_name] = {}
+            for param_name, bounds in list(group_bounds.items()):
+                if param_name.endswith('_min'):
+                    base = param_name[:-4]
+                    max_name = f'{base}_max'
+                    if max_name in group_bounds:
+                        max_bounds = group_bounds.pop(max_name)
+                        self.max_bound_storage[group_name][max_name] = max_bounds
+                        width_scale = max_bounds[1] - group_bounds[param_name][0]
+                        epsilon = max(rel_eps * width_scale, 1e-12)
+
+                        max_diff = max_bounds[1] - group_bounds[param_name][0]
+                        max_diff = max(max_diff, epsilon)
+
+                        diff_min_max = max_bounds[0] - group_bounds[param_name][1]
+                        if max_bounds[0] <= group_bounds[param_name][1]:
+                            min_diff = epsilon
+                        else:
+                            min_diff =  diff_min_max
+
+                        group_bounds[f'{base}_delta'] = [min_diff, max_diff]
+        return param_bounds
+
+    @staticmethod
+    def _split_group_prefix(param_name: str) -> Tuple[str, str, str]:
+        if '__' in param_name:
+            group_name, raw_name = param_name.split('__', 1)
+            name_prefix = f"{group_name}__"
+            return group_name, raw_name, name_prefix
+        return None, param_name, ""
+
+    @staticmethod
+    def _suffix_name(base: str, suffix: str, name_prefix: str) -> str:
+        return f"{name_prefix}{base}_{suffix}"
+
+    @staticmethod
+    def _edit_current_distribution(current_distributions: List[Tuple[str,Dict[str, float]]]) -> List[Tuple[str,Dict[str, float]]]:
+        for name, group in current_distributions:
+            for param_name, val in list(group.items()):
+                group_name, raw_name, name_prefix = OptunaOptimizer._split_group_prefix(param_name)
+
+                if raw_name.endswith('_min'):
+                    base = raw_name[:-4]
+                    max_name = OptunaOptimizer._suffix_name(base, 'max', name_prefix)
+                    if max_name in group and isinstance(group[max_name], numbers.Real):
+                        max_val = group.pop(max_name)
+                        delta = max_val - val
+                        delta_name = OptunaOptimizer._suffix_name(base, 'delta', name_prefix)
+                        group[delta_name] = delta
+        return current_distributions
+
+    def _delta_to_max(self, suggestions: List[Tuple[str,Dict[str, float]]]) -> List[Tuple[str,Dict[str, float]]]:
+        for name, group in suggestions:
+            for param_name, val in list(group.items()):
+                group_name, raw_name, name_prefix = self._split_group_prefix(param_name)
+
+                if raw_name.endswith('_min'):
+                    base = raw_name[:-4]
+                    delta_name = self._suffix_name(base, 'delta', name_prefix)
+                    if delta_name in group and isinstance(group[delta_name], numbers.Real):
+                        delta_val = group.pop(delta_name)
+                        max_value = val + delta_val
+                        max_name = self._suffix_name(base, 'max', name_prefix)
+                        group[max_name] = max_value
+                        if group_name and group_name in self.max_bound_storage and f"{base}_max" in self.max_bound_storage[group_name]:
+                            max_bounds = self.max_bound_storage[group_name][f"{base}_max"]
+                            if max_value > max_bounds[-1]:
+                                group[max_name] = max_bounds[-1]
+                            elif max_value < max_bounds[0]:
+                                group[max_name] = max_bounds[0]
+        return suggestions
+
     def suggest_next_distributions(
         self,
         current_distributions: List[Tuple[str, Dict]],
@@ -482,6 +493,7 @@ class OptunaOptimizer:
                 f"{len(metrics_list)} metric dicts"
             )
 
+        current_distributions = self._edit_current_distribution(current_distributions)
         # Build full distributions once (same for all trials in joint mode)
         distributions = self._build_full_distributions()
 
@@ -535,4 +547,5 @@ class OptunaOptimizer:
         print(f"  Total completed trials: {completed_count}")
         print(f"  Current Pareto front size: {pareto_size}")
 
+        suggestions = self._delta_to_max(suggestions)
         return suggestions
