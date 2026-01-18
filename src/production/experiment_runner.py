@@ -58,27 +58,19 @@ class ExperimentRunner:
         Setup experiment directory based on experiment name.
 
         Creates directory as {experiments_base_dir}/{experiment_name}.
-        If directory exists, appends _1, _2, etc. until finding unused name.
+        If directory exists, reuses it to continue optimization from existing state.
         Updates self.config['experiment_dir'] with the resolved path.
         """
         base_dir = Path(self.config.get('experiments_base_dir', 'data/experiments'))
         exp_name = self.config['experiment_name']
 
-        # Try base name first
         exp_dir = base_dir / exp_name
-        if not exp_dir.exists():
-            self.config['experiment_dir'] = str(exp_dir)
-            return
+        self.config['experiment_dir'] = str(exp_dir)
 
-        # Directory exists, find next available suffix
-        suffix = 1
-        while True:
-            exp_dir = base_dir / f"{exp_name}_{suffix}"
-            if not exp_dir.exists():
-                self.config['experiment_dir'] = str(exp_dir)
-                print(f"Experiment '{exp_name}' exists, using '{exp_name}_{suffix}'")
-                return
-            suffix += 1
+        if exp_dir.exists():
+            print(f"Reusing existing experiment directory: {exp_dir}")
+        else:
+            print(f"Creating new experiment directory: {exp_dir}")
 
     def set_real_embeddings(self, embeddings_400d: np.ndarray):
         """

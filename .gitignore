@@ -91,6 +91,7 @@ logs/
 # *.json
 # *.xml
 # data/
+*.png
 
 # Test artifacts
 data/test_*.pkl
