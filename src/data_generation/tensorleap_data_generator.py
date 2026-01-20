@@ -132,23 +132,45 @@ class TensorleapDataGenerator:
             n_samples_this_shape = n_samples_per_shape_dict[shape_name]
             print(f"  [{dist_name}] Generating {n_samples_this_shape} samples...")
 
-            shape_base_spec = synthetic_shape_params[shape_name]
-            shape_spec = self._create_shape_specific_spec(shape_base_spec, shape_name)
+            shape_specs = synthetic_shape_params[shape_name]
+            if isinstance(shape_specs, list):
+                n_specs = len(shape_specs)
+                base_count = n_samples_this_shape // n_specs
+                remainder = n_samples_this_shape % n_specs
+                spec_counts = [base_count + (1 if i < remainder else 0) for i in range(n_specs)]
+            else:
+                shape_specs = [shape_specs]
+                spec_counts = [n_samples_this_shape]
 
-            dist_seed = seed + (shape_idx + 1) * 10000
-            param_sets = self.parameter_sampler.sample_from_distribution_spec(
-                shape_spec,
-                n_samples=n_samples_this_shape,
-                seed=dist_seed
-            )
+            combined_samples = []
 
-            images, metadata_list = self.void_generator.generate_batch(
-                param_sets,
-                replications=1,
-                seed_offset=dist_seed
-            )
+            for spec_idx, (shape_base_spec, n_samples_spec) in enumerate(zip(shape_specs, spec_counts)):
+                if n_samples_spec == 0:
+                    continue
 
-            synth_dist_params = self._extract_distribution_params(shape_spec, shape_filter=shape_name)
+                shape_spec = self._create_shape_specific_spec(shape_base_spec, shape_name)
+                dist_seed = seed + (shape_idx + 1) * 10000 + (spec_idx + 1) * 1000
+
+                param_sets = self.parameter_sampler.sample_from_distribution_spec(
+                    shape_spec,
+                    n_samples=n_samples_spec,
+                    seed=dist_seed
+                )
+
+                images, metadata_list = self.void_generator.generate_batch(
+                    param_sets,
+                    replications=1,
+                    seed_offset=dist_seed
+                )
+
+                synth_dist_params = self._extract_distribution_params(shape_spec, shape_filter=shape_name)
+
+                for image, img_metadata in zip(images, metadata_list):
+                    combined_samples.append((image, img_metadata, synth_dist_params))
+
+            # Shuffle to mix sub-distributions before splitting
+            rng = np.random.RandomState(seed + (shape_idx + 1) * 10000 + 999)
+            rng.shuffle(combined_samples)
 
             # Split synthetic data
             n_train_synth = int(n_samples_this_shape * train_split)
@@ -163,9 +185,8 @@ class TensorleapDataGenerator:
 
             shape_global_idx = 0
             for split_name, (start_idx, end_idx) in splits_synth.items():
-                split_images = images[start_idx:end_idx]
-                split_metadata_synth = metadata_list[start_idx:end_idx]
-                for image, img_metadata in zip(split_images, split_metadata_synth):
+                split_samples = combined_samples[start_idx:end_idx]
+                for image, img_metadata, synth_dist_params in split_samples:
                     img_name = f"{shape_name}_{split_name}_{shape_global_idx:04d}.png"
                     mask_name = f"{shape_name}_{split_name}_{shape_global_idx:04d}_mask.png"
                     img_path = output_dir / split_name / dist_name / img_name

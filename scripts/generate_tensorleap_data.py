@@ -11,35 +11,95 @@ if __name__ == '__main__':
         config_path=config_path
     )
 
-    circle_params = {
-        'void_shape': {'probabilities': {'circle': 1.0}},
-        'void_count': {'mean': 15, 'std': 3},
-        'base_size': {'mean': 6, 'std': 2},
-        'rotation': {'mean': 0, 'std': 0},
-        'center_x': {'mean': 0.5, 'std': 0.1},
-        'center_y': {'mean': 0.5, 'std': 0.1},
-        'position_spread': {'mean': 0.6, 'std': 0.1},
-    }
+    circle_params = [
+        {
+            'void_shape': {'probabilities': {'circle': 1.0}},
+            'void_count': {'mean': 2, 'std': 1},
+            'base_size': {'mean': 22, 'std': 3},
+            'rotation': {'mean': 0, 'std': 0},
+            'center_x': {'mean': 0.5, 'std': 0.1},
+            'center_y': {'mean': 0.5, 'std': 0.1},
+            'position_spread': {'mean': 0.45, 'std': 0.1},
+        },
+        {
+            'void_shape': {'probabilities': {'circle': 1.0}},
+            'void_count': {'mean': 24, 'std': 4},
+            'base_size': {'mean': 3.5, 'std': 1},
+            'rotation': {'mean': 0, 'std': 0},
+            'center_x': {'mean': 0.5, 'std': 0.1},
+            'center_y': {'mean': 0.5, 'std': 0.1},
+            'position_spread': {'mean': 0.7, 'std': 0.1},
+        },
+        {
+            'void_shape': {'probabilities': {'circle': 1.0}},
+            'void_count': {'mean': 8, 'std': 2},
+            'base_size': {'mean': 4, 'std': 1},
+            'rotation': {'mean': 0, 'std': 0},
+            'center_x': {'mean': 0.1, 'std': 0.05},
+            'center_y': {'mean': 0.1, 'std': 0.05},
+            'position_spread': {'mean': 0.9, 'std': 0.05},
+        }
+    ]
 
-    ellipse_params = {
-        'void_shape': {'probabilities': {'ellipse': 1.0}},
-        'void_count': {'mean': 10, 'std': 3},
-        'base_size': {'mean': 8, 'std': 2},
-        'rotation': {'mean': 90, 'std': 45},
-        'center_x': {'mean': 0.4, 'std': 0.15},
-        'center_y': {'mean': 0.6, 'std': 0.15},
-        'position_spread': {'mean': 0.7, 'std': 0.1},
-    }
+    ellipse_params = [
+        {
+            'void_shape': {'probabilities': {'ellipse': 1.0}},
+            'void_count': {'mean': 2, 'std': 1},
+            'base_size': {'mean': 22, 'std': 3},
+            'rotation': {'mean': 45, 'std': 20},
+            'center_x': {'mean': 0.5, 'std': 0.1},
+            'center_y': {'mean': 0.5, 'std': 0.1},
+            'position_spread': {'mean': 0.45, 'std': 0.1},
+        },
+        {
+            'void_shape': {'probabilities': {'ellipse': 1.0}},
+            'void_count': {'mean': 24, 'std': 4},
+            'base_size': {'mean': 3.5, 'std': 1},
+            'rotation': {'mean': 45, 'std': 20},
+            'center_x': {'mean': 0.5, 'std': 0.1},
+            'center_y': {'mean': 0.5, 'std': 0.1},
+            'position_spread': {'mean': 0.7, 'std': 0.1},
+        },
+        {
+            'void_shape': {'probabilities': {'ellipse': 1.0}},
+            'void_count': {'mean': 8, 'std': 2},
+            'base_size': {'mean': 4, 'std': 1},
+            'rotation': {'mean': 45, 'std': 20},
+            'center_x': {'mean': 0.1, 'std': 0.05},
+            'center_y': {'mean': 0.1, 'std': 0.05},
+            'position_spread': {'mean': 0.9, 'std': 0.05},
+        }
+    ]
 
-    irregular_params = {
-        'void_shape': {'probabilities': {'irregular': 1.0}},
-        'void_count': {'mean': 20, 'std': 4},
-        'base_size': {'mean': 4, 'std': 1},
-        'rotation': {'mean': 0, 'std': 0},
-        'center_x': {'mean': 0.7, 'std': 0.1},
-        'center_y': {'mean': 0.3, 'std': 0.1},
-        'position_spread': {'mean': 0.9, 'std': 0.05},
-    }
+    irregular_params = [
+        {
+            'void_shape': {'probabilities': {'irregular': 1.0}},
+            'void_count': {'mean': 2, 'std': 1},
+            'base_size': {'mean': 22, 'std': 3},
+            'rotation': {'mean': 0, 'std': 0},
+            'center_x': {'mean': 0.5, 'std': 0.1},
+            'center_y': {'mean': 0.5, 'std': 0.1},
+            'position_spread': {'mean': 0.45, 'std': 0.1},
+        },
+        {
+            'void_shape': {'probabilities': {'irregular': 1.0}},
+            'void_count': {'mean': 24, 'std': 4},
+            'base_size': {'mean': 3.5, 'std': 1},
+            'rotation': {'mean': 0, 'std': 0},
+            'center_x': {'mean': 0.5, 'std': 0.1},
+            'center_y': {'mean': 0.5, 'std': 0.1},
+            'position_spread': {'mean': 0.7, 'std': 0.1},
+        },
+        {
+            'void_shape': {'probabilities': {'irregular': 1.0}},
+            'void_count': {'mean': 8, 'std': 2},
+            'base_size': {'mean': 4, 'std': 1},
+            'rotation': {'mean': 0, 'std': 0},
+            'center_x': {'mean': 0.1, 'std': 0.05},
+            'center_y': {'mean': 0.1, 'std': 0.05},
+            'position_spread': {'mean': 0.9, 'std': 0.05},
+        }
+    ]
 
     metadata_df = generator.generate_dataset(
         output_dir=output_dir,
@@ -50,11 +110,11 @@ if __name__ == '__main__':
             'ellipse': ellipse_params,
             'irregular': irregular_params
         },
-        n_real_samples=100,
+        n_real_samples=500,
         n_samples_per_shape_dict={
-            'circle': 60,
-            'ellipse': 60,
-            'irregular': 60
+            'circle': 150,
+            'ellipse': 150,
+            'irregular': 150
         },
         seed=42
     )
