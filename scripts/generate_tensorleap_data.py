@@ -13,7 +13,7 @@ if __name__ == '__main__':
 
     metadata_df = generator.generate_dataset(
         output_dir=output_dir,
-        real_distribution_type='real',
+        real_distribution_type='circular_shadow',  # Using circular_shadow as baseline
         synthetic_shapes=['circular_shadow', 'complex_splatter', 'dark_bezel', 'hole_like', 'main_splatter', 'structured_void'],
         synthetic_distribution_type='circular_shadow',
         n_real_samples=100,
