@@ -1,4 +1,7 @@
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from src.data_generation.tensorleap_data_generator import TensorleapDataGenerator
 
 if __name__ == '__main__':
