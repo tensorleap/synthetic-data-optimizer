@@ -91,8 +91,12 @@ class ParameterSampler:
         """
         Sample N parameter sets from a given distribution specification.
 
+        Supports two formats:
+        1. Legacy format (nested): {'void_shape': {'probabilities': {...}}, 'void_count': {'min': 5, 'max': 10}}
+        2. Infineon format (flat): {'void_type': 'circular_shadow', 'radius_min': 20, 'radius_max': 60, ...}
+
         Args:
-            dist_spec: Distribution specification dict with same structure as param_distributions
+            dist_spec: Distribution specification dict
             n_samples: Number of parameter sets to sample
             seed: Random seed for reproducibility
 
@@ -102,6 +106,11 @@ class ParameterSampler:
         if seed is not None:
             np.random.seed(seed)
 
+        # Check if this is Infineon format (has void_type key)
+        if 'void_type' in dist_spec:
+            return self._sample_from_infineon_spec(dist_spec, n_samples)
+
+        # Legacy format
         param_sets = []
 
         for i in range(n_samples):
@@ -117,6 +126,46 @@ class ParameterSampler:
 
             if 'irregularity_pattern' in dist_spec:
                 params['irregularity_pattern'] = self._sample_categorical(dist_spec['irregularity_pattern'])
+
+            param_sets.append(params)
+
+        return param_sets
+
+    def _sample_from_infineon_spec(
+        self,
+        dist_spec: Dict,
+        n_samples: int
+    ) -> List[Dict]:
+        """
+        Sample N parameter sets from Infineon-format distribution spec.
+
+        Infineon format has flat parameters (e.g., radius_min, radius_max instead of nested).
+        This method samples directly from those flat parameters.
+
+        Args:
+            dist_spec: Flat distribution spec with void_type and parameter min/max values
+            n_samples: Number of parameter sets to sample
+
+        Returns:
+            List of parameter dictionaries ready for InfineonVoidGenerator
+        """
+        param_sets = []
+
+        for _ in range(n_samples):
+            # Start with fixed parameters
+            params = {
+                'void_type': dist_spec['void_type'],
+                'package_type': dist_spec.get('package_type', '53440')
+            }
+
+            # Sample all other parameters directly
+            for key, value in dist_spec.items():
+                if key in ['void_type', 'package_type']:
+                    continue
+
+                # If it's already a simple value (not _min/_max), just copy it
+                if not (key.endswith('_min') or key.endswith('_max')):
+                    params[key] = value
 
             param_sets.append(params)
 
