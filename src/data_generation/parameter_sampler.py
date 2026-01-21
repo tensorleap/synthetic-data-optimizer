@@ -74,6 +74,10 @@ class ParameterSampler:
                 'center_y': self._sample_continuous(dist['center_y'], 'center_y'),
                 'position_spread': self._sample_continuous(dist['position_spread'], 'position_spread'),
             }
+
+            if 'irregularity_pattern' in dist:
+                params['irregularity_pattern'] = self._sample_categorical(dist['irregularity_pattern'])
+
             param_sets.append(params)
 
         return param_sets
@@ -110,6 +114,10 @@ class ParameterSampler:
                 'center_y': self._sample_continuous(dist_spec['center_y'], 'center_y'),
                 'position_spread': self._sample_continuous(dist_spec['position_spread'], 'position_spread'),
             }
+
+            if 'irregularity_pattern' in dist_spec:
+                params['irregularity_pattern'] = self._sample_categorical(dist_spec['irregularity_pattern'])
+
             param_sets.append(params)
 
         return param_sets
@@ -123,15 +131,15 @@ class ParameterSampler:
 
         Converts grouped format (group_name, params) where:
             group_name: 'circle', 'ellipse', or 'irregular'
-            params: {'void_count_mean': 5, 'void_count_std': 2, ...}
+            params: {'void_count_min': 5, 'void_count_max': 10, ...}
 
         To nested format like:
             {'void_shape': {'probabilities': {'circle': 1.0}},
-             'void_count': {'mean': 5, 'std': 2}, ...}
+             'void_count': {'min': 5, 'max': 10}, ...}
 
         Args:
             group_name: The shape group (becomes void_shape with probability 1.0)
-            params: Flat parameter dict with _mean/_std suffixes
+            params: Flat parameter dict with _min/_max suffixes
 
         Returns:
             Nested distribution specification compatible with sample_from_distribution_spec
@@ -143,22 +151,22 @@ class ParameterSampler:
             'probabilities': {group_name: 1.0}
         }
 
-        # Handle continuous/integer parameters with mean/std suffixes
+        # Handle continuous/integer parameters with min/max suffixes
         # Note: rotation only exists for ellipse, others get default
         param_bases = ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']
 
         for param_base in param_bases:
-            mean_key = f'{param_base}_mean'
-            std_key = f'{param_base}_std'
+            min_key = f'{param_base}_min'
+            max_key = f'{param_base}_max'
 
-            if mean_key in params and std_key in params:
+            if min_key in params and max_key in params:
                 nested[param_base] = {
-                    'mean': params[mean_key],
-                    'std': params[std_key]
+                    'min': params[min_key],
+                    'max': params[max_key]
                 }
             elif param_base == 'rotation':
                 # Default rotation for non-ellipse shapes (circles/irregular are rotation-invariant)
-                nested['rotation'] = {'mean': 0.0, 'std': 0.0}
+                nested['rotation'] = {'min': 0.0, 'max': 0.0}
 
         return nested
 
@@ -174,16 +182,16 @@ class ParameterSampler:
             {
                 'shape_logit_circle': 0.5,
                 'shape_logit_ellipse': 0.3,
-                'circle__void_count_mean': 5,
-                'circle__void_count_std': 2,
-                'ellipse__void_count_mean': 4,
+                'circle__void_count_min': 5,
+                'circle__void_count_max': 10,
+                'ellipse__void_count_min': 4,
                 ...
             }
 
         Converts to per-shape specs:
             {
-                'circle': {'void_count': {'mean': 5, 'std': 2}, ...},
-                'ellipse': {'void_count': {'mean': 4, 'std': ...}, ...}
+                'circle': {'void_count': {'min': 5, 'max': 10}, ...},
+                'ellipse': {'void_count': {'min': 4, 'max': ...}, ...}
             }
 
         Args:
@@ -200,17 +208,17 @@ class ParameterSampler:
             spec = {}
 
             for param_base in param_bases:
-                mean_key = f'{group_name}__{param_base}_mean'
-                std_key = f'{group_name}__{param_base}_std'
+                min_key = f'{group_name}__{param_base}_min'
+                max_key = f'{group_name}__{param_base}_max'
 
-                if mean_key in joint_params and std_key in joint_params:
+                if min_key in joint_params and max_key in joint_params:
                     spec[param_base] = {
-                        'mean': joint_params[mean_key],
-                        'std': joint_params[std_key]
+                        'min': joint_params[min_key],
+                        'max': joint_params[max_key]
                     }
                 elif param_base == 'rotation' and group_name != 'ellipse':
                     # Default rotation for non-ellipse shapes
-                    spec['rotation'] = {'mean': 0.0, 'std': 0.0}
+                    spec['rotation'] = {'min': 0.0, 'max': 0.0}
 
             per_shape_specs[group_name] = spec
 
@@ -278,23 +286,21 @@ class ParameterSampler:
 
             for param_base in ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
                 if param_base in spec:
-                    mean = spec[param_base]['mean']
-                    std = spec[param_base]['std']
-                    value = np.random.normal(mean, std)
+                    min_val = spec[param_base]['min']
+                    max_val = spec[param_base]['max']
 
-                    # Apply bounds and precision
-                    mean_bounds_key = f'{param_base}_mean'
-                    if mean_bounds_key in self.distribution_param_bounds:
-                        bounds = self.distribution_param_bounds[mean_bounds_key]
-                        value = max(value, bounds[0])
-                        value = min(value, bounds[1])
-
-                    if param_base in self.param_precision:
-                        value = round(value, self.param_precision[param_base])
+                    if min_val > max_val:
+                        raise ValueError(f"Parameter '{param_base}': min ({min_val}) > max ({max_val})")
 
                     if param_base == 'void_count':
-                        value = int(round(value))
+                        value = int(np.random.randint(min_val, max_val + 1))
                     else:
+                        value = np.random.uniform(min_val, max_val)
+
+                        # Apply precision rounding if specified
+                        if param_base in self.param_precision:
+                            value = round(value, self.param_precision[param_base])
+
                         value = float(value)
 
                     params[param_base] = value
@@ -311,28 +317,24 @@ class ParameterSampler:
         return np.random.choice(categories, p=probs)
 
     def _sample_integer(self, spec: Dict, param_name: str) -> int:
-        """Sample integer from normal distribution, clipped to distribution bounds"""
-        value = np.random.normal(spec['mean'], spec['std'])
+        """Sample integer uniformly from [min, max] range"""
+        min_val = spec['min']
+        max_val = spec['max']
 
-        # Apply bounds from distribution_param_bounds (flat format: param_name_mean)
-        mean_bounds_key = f'{param_name}_mean'
-        if mean_bounds_key in self.distribution_param_bounds:
-            mean_bounds = self.distribution_param_bounds[mean_bounds_key]
-            value = max(value, mean_bounds[0])
-            value = min(value, mean_bounds[1])
+        if min_val > max_val:
+            raise ValueError(f"Parameter '{param_name}': min ({min_val}) > max ({max_val})")
 
-        return int(round(value))
+        return int(np.random.randint(min_val, max_val + 1))
 
     def _sample_continuous(self, spec: Dict, param_name: str) -> float:
-        """Sample continuous value from normal distribution, clipped to distribution bounds"""
-        value = np.random.normal(spec['mean'], spec['std'])
+        """Sample continuous value uniformly from [min, max] range"""
+        min_val = spec['min']
+        max_val = spec['max']
 
-        # Apply bounds from distribution_param_bounds (flat format: param_name_mean)
-        mean_bounds_key = f'{param_name}_mean'
-        if mean_bounds_key in self.distribution_param_bounds:
-            mean_bounds = self.distribution_param_bounds[mean_bounds_key]
-            value = max(value, mean_bounds[0])
-            value = min(value, mean_bounds[1])
+        if min_val > max_val:
+            raise ValueError(f"Parameter '{param_name}': min ({min_val}) > max ({max_val})")
+
+        value = np.random.uniform(min_val, max_val)
 
         # Apply precision rounding if specified
         if param_name in self.param_precision:

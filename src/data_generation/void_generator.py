@@ -81,6 +81,7 @@ class VoidGenerator:
         center_x = params['center_x']
         center_y = params['center_y']
         position_spread = params['position_spread']
+        irregularity_pattern = params.get('irregularity_pattern', 'medium')
 
         # Uncontrolled parameters (random per image)
         brightness_factor = np.random.uniform(0.3, 0.8)
@@ -140,7 +141,7 @@ class VoidGenerator:
                 )
             elif void_shape == 'irregular':
                 void_mask = self._create_irregular_mask(
-                    img.shape, x, y, void_size, edge_blur
+                    img.shape, x, y, void_size, edge_blur, irregularity_pattern
                 )
             else:
                 raise ValueError(f"Unknown void_shape: {void_shape}")
@@ -240,19 +241,28 @@ class VoidGenerator:
         x: float,
         y: float,
         size: float,
-        edge_blur: int
+        edge_blur: int,
+        pattern: str = 'medium'
     ) -> np.ndarray:
         """Create irregular blob-like void mask (0-1 float)"""
         mask = np.zeros(shape, dtype=np.uint8)
 
-        # Generate random polygon points around center
-        num_points = np.random.randint(5, 12)
+        # Pattern determines polygon complexity
+        if pattern == 'smooth':
+            num_points = np.random.randint(5, 7)
+            radius_variation = (0.7, 1.3)
+        elif pattern == 'jagged':
+            num_points = np.random.randint(8, 12)
+            radius_variation = (0.4, 1.6)
+        else:
+            num_points = np.random.randint(6, 9)
+            radius_variation = (0.5, 1.5)
+
         angles = np.sort(np.random.uniform(0, 2 * np.pi, num_points))
 
         points = []
         for angle in angles:
-            # Vary radius to create irregular shape
-            radius = size * np.random.uniform(0.5, 1.5)
+            radius = size * np.random.uniform(*radius_variation)
             px = int(x + radius * np.cos(angle))
             py = int(y + radius * np.sin(angle))
             points.append([px, py])

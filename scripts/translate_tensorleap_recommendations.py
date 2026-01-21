@@ -11,12 +11,12 @@ def translate_recommendations_csv(
 ) -> Dict[str, Dict]:
     if default_params is None:
         default_params = {
-            'void_count': {'mean': 15, 'std': 3},
-            'base_size': {'mean': 6, 'std': 2},
-            'rotation': {'mean': 0, 'std': 0},
-            'center_x': {'mean': 0.5, 'std': 0.1},
-            'center_y': {'mean': 0.5, 'std': 0.1},
-            'position_spread': {'mean': 0.6, 'std': 0.1},
+            'void_count': {'min': 10, 'max': 20},
+            'base_size': {'min': 4, 'max': 8},
+            'rotation': {'min': 0, 'max': 0},
+            'center_x': {'min': 0.4, 'max': 0.6},
+            'center_y': {'min': 0.4, 'max': 0.6},
+            'position_spread': {'min': 0.5, 'max': 0.7},
         }
 
     df = pd.read_csv(csv_path)
@@ -43,31 +43,28 @@ def translate_recommendations_csv(
         params = {}
 
         for param_base in ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
-            mean_col = f'metadata.simulation_{param_base}_mean'
-            std_col = f'metadata.simulation_{param_base}_std'
+            min_col = f'metadata.simulation_{param_base}_min'
+            max_col = f'metadata.simulation_{param_base}_max'
 
-            if mean_col in df.columns and pd.notna(row[mean_col]):
-                mean_val = float(row[mean_col])
+            if min_col in df.columns and pd.notna(row[min_col]):
+                min_val = float(row[min_col])
             else:
-                mean_val = default_params[param_base]['mean']
+                min_val = default_params[param_base]['min']
 
-            if std_col in df.columns and pd.notna(row[std_col]):
-                std_val = float(row[std_col])
+            if max_col in df.columns and pd.notna(row[max_col]):
+                max_val = float(row[max_col])
             else:
-                std_val = default_params[param_base]['std']
+                max_val = default_params[param_base]['max']
 
-            params[param_base] = {'mean': mean_val, 'std': std_val}
+            params[param_base] = {'min': min_val, 'max': max_val}
 
         params['void_shape'] = {'probabilities': {shape_name: 1.0}}
 
-        shape_params[shape_name] = params
+        if 'metadata.simulation_irregularity_pattern' in df.columns and pd.notna(row['metadata.simulation_irregularity_pattern']):
+            pattern = row['metadata.simulation_irregularity_pattern']
+            params['irregularity_pattern'] = {'probabilities': {pattern: 1.0}}
 
-    print("\nTranslated parameters:")
-    for shape, params in shape_params.items():
-        print(f"\n{shape}:")
-        for param_name, values in params.items():
-            if param_name != 'void_shape':
-                print(f"  {param_name}: mean={values['mean']}, std={values['std']}")
+        shape_params[shape_name] = params
 
     return shape_params
 

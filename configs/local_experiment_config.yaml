@@ -73,23 +73,23 @@ param_distributions:
         ellipse: 0.5
         irregular: 0.3
     void_count:
-      mean: 4
-      std: 3
+      min: 1
+      max: 7
     base_size:
-      mean: 10
-      std: 3
+      min: 7
+      max: 13
     rotation:
-      mean: 180
-      std: 90
+      min: 90
+      max: 270
     center_x:
-      mean: 0.5
-      std: 0.15
+      min: 0.35
+      max: 0.65
     center_y:
-      mean: 0.5
-      std: 0.15
+      min: 0.35
+      max: 0.65
     position_spread:
-      mean: 0.5
-      std: 0.15
+      min: 0.35
+      max: 0.65
 
   close:
     void_shape:
@@ -98,23 +98,23 @@ param_distributions:
         ellipse: 0.45
         irregular: 0.3
     void_count:
-      mean: 10
-      std: 3
+      min: 7
+      max: 13
     base_size:
-      mean: 18
-      std: 5
+      min: 13
+      max: 23
     rotation:
-      mean: 180
-      std: 90
+      min: 90
+      max: 270
     center_x:
-      mean: 0.5
-      std: 0.15
+      min: 0.35
+      max: 0.65
     center_y:
-      mean: 0.5
-      std: 0.15
+      min: 0.35
+      max: 0.65
     position_spread:
-      mean: 0.55
-      std: 0.15
+      min: 0.40
+      max: 0.70
 
   far:
     void_shape:
@@ -123,36 +123,36 @@ param_distributions:
         ellipse: 0.1
         irregular: 0.8
     void_count:
-      mean: 20
-      std: 3
+      min: 17
+      max: 23
     base_size:
-      mean: 4
-      std: 2
+      min: 2
+      max: 6
     rotation:
-      mean: 45
-      std: 20
+      min: 25
+      max: 65
     center_x:
-      mean: 0.7
-      std: 0.15
+      min: 0.55
+      max: 0.85
     center_y:
-      mean: 0.1
-      std: 0.15
+      min: 0
+      max: 0.25
     position_spread:
-      mean: 0.95
-      std: 0.05
+      min: 0.90
+      max: 1.0
 
 # Legacy bounds (kept for reference, actual bounds are inferred from real data)
 distribution_param_bounds:
   void_shape: [circle, ellipse, irregular]  # Categorical
-  void_count_mean: [1, 10]
-  void_count_std: [0.5, 5.0]
-  base_size_mean: [5.0, 15.0]
-  base_size_std: [0.5, 5.0]
-  rotation_mean: [0.0, 360.0]
-  rotation_std: [10.0, 180.0]
-  center_x_mean: [0.2, 0.8]
-  center_x_std: [0.05, 0.3]
-  center_y_mean: [0.2, 0.8]
-  center_y_std: [0.05, 0.3]
-  position_spread_mean: [0.1, 0.8]
-  position_spread_std: [0.05, 0.3]
+  void_count_min: [1, 25]
+  void_count_max: [1, 25]
+  base_size_min: [2.0, 25.0]
+  base_size_max: [2.0, 25.0]
+  rotation_min: [0.0, 360.0]
+  rotation_max: [0.0, 360.0]
+  center_x_min: [0.1, 0.9]
+  center_x_max: [0.1, 0.9]
+  center_y_min: [0.1, 0.9]
+  center_y_max: [0.1, 0.9]
+  position_spread_min: [0.1, 1.0]
+  position_spread_max: [0.1, 1.0]
