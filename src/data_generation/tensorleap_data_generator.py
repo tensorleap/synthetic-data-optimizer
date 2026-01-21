@@ -104,15 +104,15 @@ class TensorleapDataGenerator:
             split_images = real_images[start_idx:end_idx]
             split_metadata = real_metadata_list[start_idx:end_idx]
             for image, img_metadata in zip(split_images, split_metadata):
-                img_name = f"real_{split_name}_{global_idx:04d}.png"
-                mask_name = f"real_{split_name}_{global_idx:04d}_mask.png"
+                img_name = f"real_epoch0_{split_name}_{global_idx:04d}.png"
+                mask_name = f"real_epoch0_{split_name}_{global_idx:04d}_mask.png"
                 img_path = output_dir / split_name / 'real' / img_name
                 mask_path = output_dir / split_name / 'real' / mask_name
                 cv2.imwrite(str(img_path), image)
                 cv2.imwrite(str(mask_path), img_metadata['mask'])
 
                 metadata_row = {
-                    'script_name': 'mixed',
+                    'script_name': 'real',
                     'image_name': img_name,
                     'mask_name': mask_name,
                     'package_type': 'test',
@@ -187,8 +187,8 @@ class TensorleapDataGenerator:
             for split_name, (start_idx, end_idx) in splits_synth.items():
                 split_samples = combined_samples[start_idx:end_idx]
                 for image, img_metadata, synth_dist_params in split_samples:
-                    img_name = f"{shape_name}_{split_name}_{shape_global_idx:04d}.png"
-                    mask_name = f"{shape_name}_{split_name}_{shape_global_idx:04d}_mask.png"
+                    img_name = f"{shape_name}_epoch0_{split_name}_{shape_global_idx:04d}.png"
+                    mask_name = f"{shape_name}_epoch0_{split_name}_{shape_global_idx:04d}_mask.png"
                     img_path = output_dir / split_name / dist_name / img_name
                     mask_path = output_dir / split_name / dist_name / mask_name
                     cv2.imwrite(str(img_path), image)
@@ -247,6 +247,7 @@ class TensorleapDataGenerator:
         synthetic_shapes: List[str],
         synthetic_shape_params: Dict[str, Dict],
         n_samples_per_shape_dict: Dict[str, int],
+        epoch: int = 1,
         seed: int = 42
     ):
         np.random.seed(seed)
@@ -268,29 +269,52 @@ class TensorleapDataGenerator:
 
         for shape_idx, shape_name in enumerate(synthetic_shapes):
             dist_name = f"synthetic_{shape_name}"
-            n_samples = n_samples_per_shape_dict[shape_name]
-            print(f"\n[{dist_name}] Generating {n_samples} samples...")
+            n_samples_this_shape = n_samples_per_shape_dict[shape_name]
+            print(f"\n[{dist_name}] Generating {n_samples_this_shape} samples...")
 
-            shape_spec = self._create_shape_specific_spec(synthetic_shape_params[shape_name], shape_name)
+            shape_specs = synthetic_shape_params[shape_name]
+            if isinstance(shape_specs, list):
+                n_specs = len(shape_specs)
+                base_count = n_samples_this_shape // n_specs
+                remainder = n_samples_this_shape % n_specs
+                spec_counts = [base_count + (1 if i < remainder else 0) for i in range(n_specs)]
+            else:
+                shape_specs = [shape_specs]
+                spec_counts = [n_samples_this_shape]
 
-            dist_seed = seed + (shape_idx + 1) * 10000
-            param_sets = self.parameter_sampler.sample_from_distribution_spec(
-                shape_spec,
-                n_samples=n_samples,
-                seed=dist_seed
-            )
+            combined_samples = []
 
-            images, metadata_list = self.void_generator.generate_batch(
-                param_sets,
-                replications=1,
-                seed_offset=dist_seed
-            )
+            for spec_idx, (shape_base_spec, n_samples_spec) in enumerate(zip(shape_specs, spec_counts)):
+                if n_samples_spec == 0:
+                    continue
 
-            synth_dist_params = self._extract_distribution_params(shape_spec, shape_filter=shape_name)
+                shape_spec = self._create_shape_specific_spec(shape_base_spec, shape_name)
+                dist_seed = seed + (shape_idx + 1) * 10000 + (spec_idx + 1) * 1000
 
-            for idx, (image, img_metadata) in enumerate(zip(images, metadata_list)):
-                img_name = f"{shape_name}_{idx:04d}.png"
-                mask_name = f"{shape_name}_{idx:04d}_mask.png"
+                param_sets = self.parameter_sampler.sample_from_distribution_spec(
+                    shape_spec,
+                    n_samples=n_samples_spec,
+                    seed=dist_seed
+                )
+
+                images, metadata_list = self.void_generator.generate_batch(
+                    param_sets,
+                    replications=1,
+                    seed_offset=dist_seed
+                )
+
+                synth_dist_params = self._extract_distribution_params(shape_spec, shape_filter=shape_name)
+
+                for image, img_metadata in zip(images, metadata_list):
+                    combined_samples.append((image, img_metadata, synth_dist_params))
+
+            # Shuffle to mix sub-distributions
+            rng = np.random.RandomState(seed + (shape_idx + 1) * 10000 + 999)
+            rng.shuffle(combined_samples)
+
+            for idx, (image, img_metadata, synth_dist_params) in enumerate(combined_samples):
+                img_name = f"{shape_name}_epoch{epoch}_{idx:04d}.png"
+                mask_name = f"{shape_name}_epoch{epoch}_{idx:04d}_mask.png"
                 img_path = output_dir / dist_name / img_name
                 mask_path = output_dir / dist_name / mask_name
                 cv2.imwrite(str(img_path), image)
@@ -305,7 +329,7 @@ class TensorleapDataGenerator:
                 }
                 all_metadata.append(metadata_row)
 
-            print(f"  Saved {n_samples} images to {output_dir / dist_name}")
+            print(f"  Saved {n_samples_this_shape} images to {output_dir / dist_name}")
 
         metadata_df = pd.DataFrame(all_metadata)
 
@@ -341,7 +365,12 @@ class TensorleapDataGenerator:
 
         for param_name in ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
             if param_name in dist_spec:
-                params[f'{param_name}_mean'] = dist_spec[param_name]['mean']
-                params[f'{param_name}_std'] = dist_spec[param_name]['std']
+                params[f'{param_name}_min'] = dist_spec[param_name]['min']
+                params[f'{param_name}_max'] = dist_spec[param_name]['max']
+
+        if 'irregularity_pattern' in dist_spec:
+            probs = dist_spec['irregularity_pattern']['probabilities']
+            pattern = max(probs, key=probs.get)
+            params['irregularity_pattern'] = pattern
 
         return params

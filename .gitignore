@@ -90,8 +90,13 @@ logs/
 # *.csv
 # *.json
 # *.xml
-# data/
 *.png
+
+# Data folder - exclude all except base_chips
+data/*
+!data/base_chips/
+data/base_chips/*.png
+data/base_chips/*.csv
 
 # Test artifacts
 data/test_*.pkl
