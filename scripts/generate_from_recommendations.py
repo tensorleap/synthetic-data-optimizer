@@ -8,7 +8,7 @@ from scripts.translate_tensorleap_recommendations import (
 
 if __name__ == '__main__':
     base_image_dir = Path(__file__).parent.parent / "data" / "base_chips"
-    config_path = Path(__file__).parent.parent / "configs" / "local_experiment_config.yaml"
+    config_path = Path(__file__).parent.parent / "configs" / "infineon_simulation_config.yaml"
     recommendations_csv = Path(__file__).parent.parent / "data" / "next-trials-explicit_float_1.csv"
     output_dir = Path(__file__).parent.parent / "data" / "tensorleap_dataset_epoch_2"
     epoch = 2
@@ -31,7 +31,7 @@ if __name__ == '__main__':
 
     metadata_df = generator.generate_synthetic_only(
         output_dir=output_dir,
-        synthetic_shapes=['circle', 'ellipse', 'irregular'],
+        synthetic_shapes=['circular_shadow', 'complex_splatter', 'dark_bezel', 'hole_like', 'main_splatter', 'structured_void'],
         synthetic_shape_params=shape_params,
         n_samples_per_shape_dict=n_samples_dict,
         epoch=epoch,
@@ -39,21 +39,7 @@ if __name__ == '__main__':
     )
 
     print(f"\n[GENERATED DATASET PREVIEW]")
-    print(f"Circle samples: {len(metadata_df[metadata_df['script_name'] == 'circle'])}")
-    print(f"Ellipse samples: {len(metadata_df[metadata_df['script_name'] == 'ellipse'])}")
-    print(f"Irregular samples: {len(metadata_df[metadata_df['script_name'] == 'irregular'])}")
-    print(f"Real samples: {len(metadata_df[metadata_df['script_name'] == 'real'])}")
-
-    print(f"\n[CIRCLE PARAMETERS]")
-    circle_row = metadata_df[metadata_df['script_name'] == 'circle'].iloc[0]
-    print(f"  base_size: [{circle_row['base_size_min']}, {circle_row['base_size_max']}]")
-    print(f"  center_x: [{circle_row['center_x_min']}, {circle_row['center_x_max']}]")
-    print(f"  center_y: [{circle_row['center_y_min']}, {circle_row['center_y_max']}]")
-
-    print(f"\n[ELLIPSE PARAMETERS]")
-    ellipse_row = metadata_df[metadata_df['script_name'] == 'ellipse'].iloc[0]
-    print(f"  base_size: [{ellipse_row['base_size_min']}, {ellipse_row['base_size_max']}]")
-    print(f"  rotation: [{ellipse_row['rotation_min']}, {ellipse_row['rotation_max']}]")
-    print(f"  center_x: [{ellipse_row['center_x_min']}, {ellipse_row['center_x_max']}]")
+    for shape in ['circular_shadow', 'complex_splatter', 'dark_bezel', 'hole_like', 'main_splatter', 'structured_void']:
+        print(f"{shape} samples: {len(metadata_df[metadata_df['script_name'] == shape])}")
 
     print(f"\nDataset saved to: {output_dir}")

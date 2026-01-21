@@ -4,7 +4,7 @@ import cv2
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 
-from .void_generator import VoidGenerator
+from .infineon_void_generator import InfineonVoidGenerator
 from .parameter_sampler import ParameterSampler
 
 
@@ -15,7 +15,7 @@ class TensorleapDataGenerator:
         base_image_dir: Path,
         config_path: Optional[Path] = None
     ):
-        self.void_generator = VoidGenerator(base_image_dir)
+        self.void_generator = InfineonVoidGenerator(base_image_dir)
         self.parameter_sampler = ParameterSampler(config_path)
 
     def generate_dataset(
