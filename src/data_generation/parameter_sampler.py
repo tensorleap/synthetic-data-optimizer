@@ -33,27 +33,22 @@ class ParameterSampler:
 
     def sample_parameter_sets(
         self,
-        distribution_type: Literal['real', 'close', 'far'],
+        distribution_type: str,
         n_sets: int,
         seed: Optional[int] = None
     ) -> List[Dict]:
         """
         Sample N parameter sets from specified distribution.
 
+        Supports both legacy format and Infineon format distributions.
+
         Args:
-            distribution_type: Which distribution to sample from ('real', 'close', 'far')
+            distribution_type: Which distribution to sample from (e.g., 'real', 'close', 'far', or Infineon types)
             n_sets: Number of parameter sets to generate
             seed: Random seed for reproducibility
 
         Returns:
-            List of parameter dictionaries, each containing:
-                - void_shape: str
-                - void_count: int
-                - base_size: float
-                - rotation: float
-                - center_x: float
-                - center_y: float
-                - position_spread: float
+            List of parameter dictionaries
         """
         if seed is not None:
             np.random.seed(seed)
@@ -62,6 +57,12 @@ class ParameterSampler:
             raise ValueError(f"Unknown distribution type: {distribution_type}. Must be one of: {list(self.distributions.keys())}")
 
         dist = self.distributions[distribution_type]
+
+        # Check if Infineon format
+        if 'void_type' in dist:
+            return self._sample_from_infineon_spec(dist, n_sets)
+
+        # Legacy format
         param_sets = []
 
         for i in range(n_sets):
@@ -140,7 +141,8 @@ class ParameterSampler:
         Sample N parameter sets from Infineon-format distribution spec.
 
         Infineon format has flat parameters (e.g., radius_min, radius_max instead of nested).
-        This method samples directly from those flat parameters.
+        All parameters are directly copied to output (no sampling needed - the InfineonVoidGenerator
+        will sample from min/max ranges).
 
         Args:
             dist_spec: Flat distribution spec with void_type and parameter min/max values
@@ -152,21 +154,8 @@ class ParameterSampler:
         param_sets = []
 
         for _ in range(n_samples):
-            # Start with fixed parameters
-            params = {
-                'void_type': dist_spec['void_type'],
-                'package_type': dist_spec.get('package_type', '53440')
-            }
-
-            # Sample all other parameters directly
-            for key, value in dist_spec.items():
-                if key in ['void_type', 'package_type']:
-                    continue
-
-                # If it's already a simple value (not _min/_max), just copy it
-                if not (key.endswith('_min') or key.endswith('_max')):
-                    params[key] = value
-
+            # Copy all parameters directly - the wrapper will handle sampling from ranges
+            params = dict(dist_spec)
             param_sets.append(params)
 
         return param_sets

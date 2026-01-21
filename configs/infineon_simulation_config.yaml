@@ -2,111 +2,115 @@
 # Contains parameter definitions for all 6 Infineon void generation simulations
 # These parameters are flattened (e.g., DROPLET_COUNT_RANGE → droplet_count_min/max)
 
-# Simulation 1: Circular voids with outer shadows
-circular_shadow:
-  void_type: circular_shadow
-  package_type: "53440"
-  num_splatters_min: 1
-  num_splatters_max: 3
-  radius_min: 20
-  radius_max: 60
-  irregularity_min: 0.03
-  irregularity_max: 0.15
-  shadow_width_min: 0.10
-  shadow_width_max: 0.25
-  shadow_opacity_min: 0.70
-  shadow_opacity_max: 0.98
+param_distributions:
+  # Simulation 1: Circular voids with outer shadows
+  circular_shadow:
+    void_type: circular_shadow
+    package_type: "53440"
+    num_splatters_min: 1
+    num_splatters_max: 3
+    radius_min: 20
+    radius_max: 60
+    irregularity_min: 0.03
+    irregularity_max: 0.15
+    shadow_width_min: 0.10
+    shadow_width_max: 0.25
+    shadow_opacity_min: 0.70
+    shadow_opacity_max: 0.98
 
-# Simulation 2: Complex splatters with droplets
-complex_splatter:
-  void_type: complex_splatter
-  package_type: "53439"
-  num_splatters_min: 10
-  num_splatters_max: 20
-  min_size_min: 10
-  min_size_max: 20
-  max_size_min: 25
-  max_size_max: 45
-  main_darkness_min: 0.30
-  main_darkness_max: 0.50
-  droplet_darkness_min: 0.08
-  droplet_darkness_max: 0.18
-  droplet_count_min: 3
-  droplet_count_max: 18
-  droplet_size_min: 0.001
-  droplet_size_max: 0.010
-  droplet_distance_min: 0.7
-  droplet_distance_max: 1.4
-  shadow_intensity: 0.5
-  shadow_radius_factor: 1.0
-  shadow_noise: 0.5
-  shadow_blur: 2.0
-  light_intensity: 0.6
-  light_radius_factor: 1.5
-  halo_noise: 0.5
-  gradient_direction: edge_dark
-  droplet_blur: 1.5
-  main_blur: 2.0
+  # Simulation 2: Complex splatters with droplets
+  complex_splatter:
+    void_type: complex_splatter
+    package_type: "53439"
+    num_splatters_min: 10
+    num_splatters_max: 20
+    min_size_min: 10
+    min_size_max: 20
+    max_size_min: 25
+    max_size_max: 45
+    main_darkness_min: 0.30
+    main_darkness_max: 0.50
+    droplet_darkness_min: 0.08
+    droplet_darkness_max: 0.18
+    droplet_count_min: 3
+    droplet_count_max: 18
+    droplet_size_min: 0.001
+    droplet_size_max: 0.010
+    droplet_distance_min: 0.7
+    droplet_distance_max: 1.4
+    shadow_intensity: 0.5
+    shadow_radius_factor: 1.0
+    shadow_noise: 0.5
+    shadow_blur: 2.0
+    light_intensity: 0.6
+    light_radius_factor: 1.5
+    halo_noise: 0.5
+    gradient_direction: edge_dark
+    droplet_blur: 1.5
+    main_blur: 2.0
 
-# Simulation 3: Dark bezel-shaped voids
-dark_bezel:
-  void_type: dark_bezel
-  package_type: "53440"
-  num_voids_min: 1
-  num_voids_max: 3
-  void_size_min: 20
-  void_size_max: 60
+  # Simulation 3: Dark bezel-shaped voids
+  dark_bezel:
+    void_type: dark_bezel
+    package_type: "53440"
+    num_voids_min: 1
+    num_voids_max: 3
+    void_size_min: 20
+    void_size_max: 60
 
-# Simulation 4: Hole-like voids (droplets only)
-hole_like:
-  void_type: hole_like
-  package_type: "53438"
-  num_splatters_min: 1
-  num_splatters_max: 2
-  min_size_min: 20
-  min_size_max: 35
-  max_size_min: 35
-  max_size_max: 60
-  droplet_darkness_min: 0.12
-  droplet_darkness_max: 0.28
-  droplet_count_min: 1
-  droplet_count_max: 3
-  droplet_size_min: 0.008
-  droplet_size_max: 0.025
-  droplet_distance_min: 0.05
-  droplet_distance_max: 1.0
+  # Simulation 4: Hole-like voids (droplets only)
+  hole_like:
+    void_type: hole_like
+    package_type: "53438"
+    num_splatters_min: 1
+    num_splatters_max: 2
+    min_size_min: 20
+    min_size_max: 35
+    max_size_min: 35
+    max_size_max: 60
+    droplet_darkness_min: 0.12
+    droplet_darkness_max: 0.28
+    droplet_count_min: 1
+    droplet_count_max: 3
+    droplet_size_min: 0.008
+    droplet_size_max: 0.025
+    droplet_distance_min: 0.05
+    droplet_distance_max: 1.0
 
-# Simulation 5: Main splatter with voids
-main_splatter:
-  void_type: main_splatter
-  package_type: "53440"
-  num_splatters_min: 1
-  num_splatters_max: 2
-  min_size_min: 20
-  min_size_max: 35
-  max_size_min: 35
-  max_size_max: 60
-  main_darkness_min: 0.20
-  main_darkness_max: 0.60
-  droplet_darkness_min: 0.12
-  droplet_darkness_max: 0.30
-  droplet_count_min: 8
-  droplet_count_max: 30
-  droplet_size_min: 0.0005
-  droplet_size_max: 0.010
-  droplet_distance_min: 0.8
-  droplet_distance_max: 1.4
+  # Simulation 5: Main splatter with voids
+  main_splatter:
+    void_type: main_splatter
+    package_type: "53440"
+    num_splatters_min: 1
+    num_splatters_max: 2
+    min_size_min: 20
+    min_size_max: 35
+    max_size_min: 35
+    max_size_max: 60
+    main_darkness_min: 0.20
+    main_darkness_max: 0.60
+    droplet_darkness_min: 0.12
+    droplet_darkness_max: 0.30
+    droplet_count_min: 8
+    droplet_count_max: 30
+    droplet_size_min: 0.0005
+    droplet_size_max: 0.010
+    droplet_distance_min: 0.8
+    droplet_distance_max: 1.4
 
-# Simulation 6: Stretched/rotated structured voids
-structured_void:
-  void_type: structured_void
-  package_type: "53440"
-  num_voids_min: 1
-  num_voids_max: 3
-  void_size_min: 15
-  void_size_max: 30
-  direction: random
-  stretch_min: 2.0
-  stretch_max: 5.0
-  darkness_min: 0.40
-  darkness_max: 0.60
+  # Simulation 6: Stretched/rotated structured voids
+  structured_void:
+    void_type: structured_void
+    package_type: "53440"
+    num_voids_min: 1
+    num_voids_max: 3
+    void_size_min: 15
+    void_size_max: 30
+    direction: random
+    stretch_min: 2.0
+    stretch_max: 5.0
+    darkness_min: 0.40
+    darkness_max: 0.60
+
+# Minimal required config keys
+distribution_param_bounds: {}
