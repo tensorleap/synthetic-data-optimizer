@@ -40,8 +40,9 @@ if __name__ == '__main__':
         generator.parameter_sampler.distributions['structured_void_b']
     ]
 
-    # Real data: mix of all 6 simulation types (using 'a' variants)
-    real_params = [
+    # For real data: treat it as another "simulation type" with mixed params
+    # Use 'a' variants of all 6 simulations for real baseline
+    real_mixed_params = [
         generator.parameter_sampler.distributions['circular_shadow_a'],
         generator.parameter_sampler.distributions['complex_splatter_a'],
         generator.parameter_sampler.distributions['dark_bezel_a'],
@@ -50,13 +51,13 @@ if __name__ == '__main__':
         generator.parameter_sampler.distributions['structured_void_a']
     ]
 
-    # Generate dataset with train/val/test splits and real/synthetic separation
+    # Generate dataset - treat 'real' as 7th simulation type (mix of all)
     metadata_df = generator.generate_dataset(
         output_dir=output_dir,
-        real_distribution_type='real',  # Use 'real' key
-        synthetic_shapes=['circular_shadow', 'complex_splatter', 'dark_bezel', 'hole_like', 'main_splatter', 'structured_void'],
+        real_distribution_type='circular_shadow_a',  # Placeholder (will be overridden by synthetic_shape_params)
+        synthetic_shapes=['real', 'circular_shadow', 'complex_splatter', 'dark_bezel', 'hole_like', 'main_splatter', 'structured_void'],
         synthetic_shape_params={
-            'real': real_params,  # Real data is mix of all simulations
+            'real': real_mixed_params,
             'circular_shadow': circular_shadow_params,
             'complex_splatter': complex_splatter_params,
             'dark_bezel': dark_bezel_params,
@@ -64,8 +65,9 @@ if __name__ == '__main__':
             'main_splatter': main_splatter_params,
             'structured_void': structured_void_params
         },
-        n_real_samples=100,
+        n_real_samples=1,  # Dummy value (real is treated as synthetic)
         n_samples_per_shape_dict={
+            'real': 100,  # Mix of all 6 types
             'circular_shadow': 50,
             'complex_splatter': 50,
             'dark_bezel': 50,
