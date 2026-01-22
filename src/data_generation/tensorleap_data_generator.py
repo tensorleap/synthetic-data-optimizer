@@ -59,10 +59,14 @@ class TensorleapDataGenerator:
         real_dist_spec = self.parameter_sampler.distributions[real_distribution_type]
 
         if synthetic_shape_params is None:
-            synth_base_spec = self.parameter_sampler.distributions[synthetic_distribution_type]
             synthetic_shape_params = {}
             for shape in synthetic_shapes:
-                synthetic_shape_params[shape] = synth_base_spec
+                # Use each shape's own distribution if it exists, otherwise fall back to synthetic_distribution_type
+                if shape in self.parameter_sampler.distributions:
+                    synthetic_shape_params[shape] = self.parameter_sampler.distributions[shape]
+                else:
+                    synth_base_spec = self.parameter_sampler.distributions[synthetic_distribution_type]
+                    synthetic_shape_params[shape] = synth_base_spec
 
         # Create split directories
         for split_name in ['train', 'val', 'test']:
@@ -115,7 +119,7 @@ class TensorleapDataGenerator:
                     'script_name': 'real',
                     'image_name': img_name,
                     'mask_name': mask_name,
-                    'package_type': 'test',
+                    'package_type': real_dist_spec.get('package_type', 'unknown'),
                     'dataset_split': split_name,
                     **real_dist_params
                 }
@@ -198,7 +202,6 @@ class TensorleapDataGenerator:
                         'script_name': shape_name,
                         'image_name': img_name,
                         'mask_name': mask_name,
-                        'package_type': 'test',
                         'dataset_split': split_name,
                         **synth_dist_params
                     }
@@ -324,7 +327,6 @@ class TensorleapDataGenerator:
                     'script_name': shape_name,
                     'image_name': img_name,
                     'mask_name': mask_name,
-                    'package_type': 'test',
                     **synth_dist_params
                 }
                 all_metadata.append(metadata_row)
@@ -362,6 +364,10 @@ class TensorleapDataGenerator:
 
     def _extract_distribution_params(self, dist_spec: Dict, shape_filter: Optional[str]) -> Dict:
         params = {}
+
+        # Extract package_type if present (for Infineon format)
+        if 'package_type' in dist_spec:
+            params['package_type'] = dist_spec['package_type']
 
         for param_name in ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
             if param_name in dist_spec:
