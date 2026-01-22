@@ -3,6 +3,21 @@
 # Each simulation has 2 variants with different parameter values for Tensorleap bound inference
 
 param_distributions:
+  # Dummy real distribution (actual params come from synthetic_shape_params['real'] in script)
+  real:
+    void_type: circular_shadow
+    package_type: "53440"
+    num_splatters_min: 1
+    num_splatters_max: 2
+    radius_min: 20
+    radius_max: 50
+    irregularity_min: 0.03
+    irregularity_max: 0.12
+    shadow_width_min: 0.10
+    shadow_width_max: 0.25
+    shadow_opacity_min: 0.70
+    shadow_opacity_max: 0.95
+
   # Simulation 1: Circular voids with outer shadows - Variant A (smaller, lighter)
   circular_shadow_a:
     void_type: circular_shadow

@@ -40,12 +40,23 @@ if __name__ == '__main__':
         generator.parameter_sampler.distributions['structured_void_b']
     ]
 
+    # Real data: mix of all 6 simulation types (using 'a' variants)
+    real_params = [
+        generator.parameter_sampler.distributions['circular_shadow_a'],
+        generator.parameter_sampler.distributions['complex_splatter_a'],
+        generator.parameter_sampler.distributions['dark_bezel_a'],
+        generator.parameter_sampler.distributions['hole_like_a'],
+        generator.parameter_sampler.distributions['main_splatter_a'],
+        generator.parameter_sampler.distributions['structured_void_a']
+    ]
+
     # Generate dataset with train/val/test splits and real/synthetic separation
     metadata_df = generator.generate_dataset(
         output_dir=output_dir,
-        real_distribution_type='circular_shadow_a',  # Real data uses circular_shadow_a variant
+        real_distribution_type='real',  # Use 'real' key
         synthetic_shapes=['circular_shadow', 'complex_splatter', 'dark_bezel', 'hole_like', 'main_splatter', 'structured_void'],
         synthetic_shape_params={
+            'real': real_params,  # Real data is mix of all simulations
             'circular_shadow': circular_shadow_params,
             'complex_splatter': complex_splatter_params,
             'dark_bezel': dark_bezel_params,
