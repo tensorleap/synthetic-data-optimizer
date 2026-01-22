@@ -40,9 +40,10 @@ if __name__ == '__main__':
         generator.parameter_sampler.distributions['structured_void_b']
     ]
 
-    # Generate synthetic-only dataset (no separate "real" category - all are labeled simulations)
-    metadata_df = generator.generate_synthetic_only(
+    # Generate dataset with train/val/test splits and real/synthetic separation
+    metadata_df = generator.generate_dataset(
         output_dir=output_dir,
+        real_distribution_type='circular_shadow_a',  # Real data uses circular_shadow_a variant
         synthetic_shapes=['circular_shadow', 'complex_splatter', 'dark_bezel', 'hole_like', 'main_splatter', 'structured_void'],
         synthetic_shape_params={
             'circular_shadow': circular_shadow_params,
@@ -52,6 +53,7 @@ if __name__ == '__main__':
             'main_splatter': main_splatter_params,
             'structured_void': structured_void_params
         },
+        n_real_samples=100,
         n_samples_per_shape_dict={
             'circular_shadow': 50,
             'complex_splatter': 50,
@@ -60,7 +62,6 @@ if __name__ == '__main__':
             'main_splatter': 50,
             'structured_void': 50
         },
-        epoch=0,
         seed=42
     )
 
