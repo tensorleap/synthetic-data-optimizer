@@ -120,8 +120,7 @@ class TensorleapDataGenerator:
                     'image_name': img_name,
                     'mask_name': mask_name,
                     'package_type': real_dist_spec.get('package_type', 'unknown'),
-                    'dataset_split': split_name,
-                    **real_dist_params
+                    'dataset_split': split_name
                 }
                 all_metadata.append(metadata_row)
                 global_idx += 1
@@ -365,18 +364,13 @@ class TensorleapDataGenerator:
     def _extract_distribution_params(self, dist_spec: Dict, shape_filter: Optional[str]) -> Dict:
         params = {}
 
-        # Extract package_type if present (for Infineon format)
-        if 'package_type' in dist_spec:
-            params['package_type'] = dist_spec['package_type']
+        # Check if Infineon format (has void_type)
+        if 'void_type' in dist_spec:
+            # Infineon format - copy all parameters except void_type and void_shape
+            for key, value in dist_spec.items():
+                if key not in ['void_type', 'void_shape']:
+                    params[key] = value
+            return params
 
-        for param_name in ['void_count', 'base_size', 'rotation', 'center_x', 'center_y', 'position_spread']:
-            if param_name in dist_spec:
-                params[f'{param_name}_min'] = dist_spec[param_name]['min']
-                params[f'{param_name}_max'] = dist_spec[param_name]['max']
-
-        if 'irregularity_pattern' in dist_spec:
-            probs = dist_spec['irregularity_pattern']['probabilities']
-            pattern = max(probs, key=probs.get)
-            params['irregularity_pattern'] = pattern
-
+        # Legacy format - return empty dict (no params needed for real data)
         return params
