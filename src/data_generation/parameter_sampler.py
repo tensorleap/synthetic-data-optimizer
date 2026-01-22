@@ -140,21 +140,20 @@ class ParameterSampler:
         """
         Sample N parameter sets from Infineon-format distribution spec.
 
-        Infineon format has flat parameters (e.g., radius_min, radius_max instead of nested).
-        All parameters are directly copied to output (no sampling needed - the InfineonVoidGenerator
-        will sample from min/max ranges).
+        All samples get identical parameter dict (copied from dist_spec).
+        Variability comes from having multiple distribution variants (e.g., circular_shadow_a, circular_shadow_b).
 
         Args:
-            dist_spec: Flat distribution spec with void_type and parameter min/max values
-            n_samples: Number of parameter sets to sample
+            dist_spec: Flat distribution spec with void_type and parameter values
+            n_samples: Number of parameter sets to sample (all identical)
 
         Returns:
-            List of parameter dictionaries ready for InfineonVoidGenerator
+            List of identical parameter dictionaries
         """
         param_sets = []
 
         for _ in range(n_samples):
-            # Copy all parameters directly - the wrapper will handle sampling from ranges
+            # Copy all parameters directly
             params = dict(dist_spec)
             param_sets.append(params)
 

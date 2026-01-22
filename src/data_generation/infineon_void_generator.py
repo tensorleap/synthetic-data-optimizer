@@ -99,18 +99,18 @@ class InfineonVoidGenerator:
     def _generate_circular_shadow(self, image_rgb, image_path, package_type, params):
         rect_coords = get_rect_coords_circular(image_path, package_type)
 
-        # Sample parameters from ranges
-        num_splatters = random.randint(params['num_splatters_min'], params['num_splatters_max'])
+        # Sample from the parameter ranges (each sample has different min/max values from ParameterSampler)
+        num_splatters = random.randint(int(params['num_splatters_min']), int(params['num_splatters_max']))
 
         # Call generation function for each splatter
         result = image_rgb.copy()
         combined_mask = np.zeros((image_rgb.shape[0], image_rgb.shape[1]), dtype=np.uint8)
 
         for _ in range(num_splatters):
-            radius = random.randint(params['radius_min'], params['radius_max'])
-            irregularity = random.uniform(params['irregularity_min'], params['irregularity_max'])
-            shadow_width = random.uniform(params['shadow_width_min'], params['shadow_width_max'])
-            shadow_opacity = random.uniform(params['shadow_opacity_min'], params['shadow_opacity_max'])
+            radius = random.randint(int(params['radius_min']), int(params['radius_max']))
+            irregularity = random.uniform(float(params['irregularity_min']), float(params['irregularity_max']))
+            shadow_width = random.uniform(float(params['shadow_width_min']), float(params['shadow_width_max']))
+            shadow_opacity = random.uniform(float(params['shadow_opacity_min']), float(params['shadow_opacity_max']))
 
             result_single, mask_single = create_outer_shadow_splatter(
                 result,
