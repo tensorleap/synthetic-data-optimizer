@@ -40,24 +40,22 @@ if __name__ == '__main__':
         generator.parameter_sampler.distributions['structured_void_b']
     ]
 
-    # For real data: treat it as another "simulation type" with mixed params
-    # Use 'a' variants of all 6 simulations for real baseline
-    real_mixed_params = [
-        generator.parameter_sampler.distributions['circular_shadow_a'],
-        generator.parameter_sampler.distributions['complex_splatter_a'],
-        generator.parameter_sampler.distributions['dark_bezel_a'],
-        generator.parameter_sampler.distributions['hole_like_a'],
-        generator.parameter_sampler.distributions['main_splatter_a'],
-        generator.parameter_sampler.distributions['structured_void_a']
+    # Real data: list of distribution types (one per simulation)
+    real_distributions = [
+        'circular_shadow_real',
+        'complex_splatter_real',
+        'dark_bezel_real',
+        'hole_like_real',
+        'main_splatter_real',
+        'structured_void_real'
     ]
 
-    # Generate dataset - treat 'real' as 7th simulation type (mix of all)
+    # Generate dataset
     metadata_df = generator.generate_dataset(
         output_dir=output_dir,
-        real_distribution_type='circular_shadow_a',  # Placeholder (will be overridden by synthetic_shape_params)
-        synthetic_shapes=['real', 'circular_shadow', 'complex_splatter', 'dark_bezel', 'hole_like', 'main_splatter', 'structured_void'],
+        real_distribution_type=real_distributions,
+        synthetic_shapes=['circular_shadow', 'complex_splatter', 'dark_bezel', 'hole_like', 'main_splatter', 'structured_void'],
         synthetic_shape_params={
-            'real': real_mixed_params,
             'circular_shadow': circular_shadow_params,
             'complex_splatter': complex_splatter_params,
             'dark_bezel': dark_bezel_params,
@@ -65,9 +63,8 @@ if __name__ == '__main__':
             'main_splatter': main_splatter_params,
             'structured_void': structured_void_params
         },
-        n_real_samples=1,  # Dummy value (real is treated as synthetic)
+        n_real_samples=100,
         n_samples_per_shape_dict={
-            'real': 100,  # Mix of all 6 types
             'circular_shadow': 50,
             'complex_splatter': 50,
             'dark_bezel': 50,

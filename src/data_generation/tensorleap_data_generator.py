@@ -21,7 +21,7 @@ class TensorleapDataGenerator:
     def generate_dataset(
         self,
         output_dir: Path,
-        real_distribution_type: str = 'real',
+        real_distribution_type = 'real',
         synthetic_shapes: List[str] = None,
         synthetic_distribution_type: str = 'far',
         synthetic_shape_params: Optional[Dict[str, Dict]] = None,
@@ -44,19 +44,26 @@ class TensorleapDataGenerator:
         if n_samples_per_shape_dict is None:
             n_samples_per_shape_dict = {shape: n_samples_per_shape for shape in synthetic_shapes}
 
+        # Support both single distribution (string) or list of distributions
+        if isinstance(real_distribution_type, str):
+            real_distribution_types = [real_distribution_type]
+        else:
+            real_distribution_types = list(real_distribution_type)
+
         print(f"\n{'='*60}")
         print(f"TENSORLEAP DATA GENERATOR")
         print(f"{'='*60}")
         print(f"Output directory: {output_dir}")
-        print(f"Real distribution: '{real_distribution_type}' ({n_real_samples} samples)")
+        if len(real_distribution_types) == 1:
+            print(f"Real distribution: '{real_distribution_types[0]}' ({n_real_samples} samples)")
+        else:
+            print(f"Real distributions (mixed): {real_distribution_types} ({n_real_samples} samples)")
         print(f"Synthetic shapes:")
         for shape in synthetic_shapes:
             print(f"  {shape}: {n_samples_per_shape_dict[shape]} samples")
         print(f"Split: train={train_split:.0%}, val={val_split:.0%}, test={test_split:.0%}")
 
         all_metadata = []
-
-        real_dist_spec = self.parameter_sampler.distributions[real_distribution_type]
 
         if synthetic_shape_params is None:
             synthetic_shape_params = {}
@@ -76,21 +83,42 @@ class TensorleapDataGenerator:
             for shape in synthetic_shapes:
                 (split_dir / f'synthetic_{shape}').mkdir(exist_ok=True)
 
-        # Generate real data
+        # Generate real data - cycle through all distributions
         print(f"\n[REAL DATA] Generating {n_real_samples} samples...")
-        real_param_sets = self.parameter_sampler.sample_parameter_sets(
-            distribution_type=real_distribution_type,
-            n_sets=n_real_samples,
-            seed=seed
-        )
 
-        real_images, real_metadata_list = self.void_generator.generate_batch(
-            real_param_sets,
-            replications=1,
-            seed_offset=seed
-        )
+        n_real_dists = len(real_distribution_types)
+        base_count = n_real_samples // n_real_dists
+        remainder = n_real_samples % n_real_dists
+        dist_counts = [base_count + (1 if i < remainder else 0) for i in range(n_real_dists)]
 
-        real_dist_params = self._extract_distribution_params(real_dist_spec, shape_filter=None)
+        real_images = []
+        real_metadata_list = []
+
+        for dist_idx, (dist_type, n_samples_dist) in enumerate(zip(real_distribution_types, dist_counts)):
+            if n_samples_dist == 0:
+                continue
+
+            dist_seed = seed + dist_idx * 1000
+            param_sets = self.parameter_sampler.sample_parameter_sets(
+                distribution_type=dist_type,
+                n_sets=n_samples_dist,
+                seed=dist_seed
+            )
+
+            images, metadata_list = self.void_generator.generate_batch(
+                param_sets,
+                replications=1,
+                seed_offset=dist_seed
+            )
+
+            real_images.extend(images)
+            real_metadata_list.extend(metadata_list)
+
+        # Shuffle real data to mix different simulation types
+        rng = np.random.RandomState(seed + 999)
+        combined_real = list(zip(real_images, real_metadata_list))
+        rng.shuffle(combined_real)
+        real_images, real_metadata_list = zip(*combined_real)
 
         # Split real data
         n_train = int(n_real_samples * train_split)
@@ -115,11 +143,15 @@ class TensorleapDataGenerator:
                 cv2.imwrite(str(img_path), image)
                 cv2.imwrite(str(mask_path), img_metadata['mask'])
 
+                void_type = img_metadata['params'].get('void_type', 'unknown')
+                package_type = img_metadata['params'].get('package_type', 'unknown')
+
                 metadata_row = {
                     'script_name': 'real',
                     'image_name': img_name,
                     'mask_name': mask_name,
-                    'package_type': real_dist_spec.get('package_type', 'unknown'),
+                    'void_type': void_type,
+                    'package_type': package_type,
                     'dataset_split': split_name
                 }
                 all_metadata.append(metadata_row)
